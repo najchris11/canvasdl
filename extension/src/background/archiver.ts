@@ -1,6 +1,6 @@
 import type { ArchiveJob, CourseArchive } from "../types/archive";
 import type { CanvasCourse, ExtMessage, ScrapeResult } from "../types/canvas";
-import { loadExportMeta, saveArchiveZip } from "../lib/storage";
+import { loadExportMeta, loadFileBytes, saveArchiveZip } from "../lib/storage";
 import { generateArchiveSite } from "../lib/siteGenerator";
 
 type QueueItem = { url: string; courseId: number; purpose: string };
@@ -54,7 +54,11 @@ export async function startArchive(
     broadcastJobState();
 
     const exportMeta = await loadExportMeta();
-    const zipBytes = await generateArchiveSite(activeJob, exportMeta ?? null);
+    const fileLoader = async (path: string) => {
+      const bytes = await loadFileBytes(path);
+      return bytes ?? null;
+    };
+    const zipBytes = await generateArchiveSite(activeJob, exportMeta ?? null, fileLoader);
     await saveArchiveZip(zipBytes);
 
     activeJob.status = "done";

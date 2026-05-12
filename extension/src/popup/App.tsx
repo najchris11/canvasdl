@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArchiveJob } from "../types/archive";
 import type { CanvasCourse, ExtMessage, TabState } from "../types/canvas";
-import { parseSubmissionsZip } from "../lib/zipParser";
-import { loadExportMeta, loadArchiveZip, saveExportMeta } from "../lib/storage";
+import { parseSubmissionsZip, iterateFileBytes } from "../lib/zipParser";
+import { loadExportMeta, loadArchiveZip, saveExportMeta, saveFileBytes } from "../lib/storage";
 import type { ParsedExport } from "../lib/zipParser";
 
 type CanvasStatus = "loading" | "not-canvas" | "ready";
@@ -18,6 +18,7 @@ export default function App() {
   const [exportData, setExportData] = useState<ParsedExport | null>(null);
   const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
   const [importError, setImportError] = useState("");
+  const [extractProgress, setExtractProgress] = useState<{ done: number; total: number } | null>(null);
   const [job, setJob] = useState<ArchiveJob | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -71,16 +72,31 @@ export default function App() {
     if (!file) return;
     setImportStatus("parsing");
     setImportError("");
+    setExtractProgress(null);
     try {
       const parsed = await parseSubmissionsZip(file);
       await saveExportMeta(parsed);
       setExportData(parsed);
+
+      // Extract and store all file bytes so they can be bundled into the archive
+      const total = parsed.totalFiles;
+      let done = 0;
+      setExtractProgress({ done: 0, total });
+      for await (const { path, bytes } of iterateFileBytes(file)) {
+        await saveFileBytes(path, bytes);
+        done++;
+        // Update every 5 files to avoid excessive re-renders
+        if (done % 5 === 0 || done === total) setExtractProgress({ done, total });
+      }
+
       setImportStatus("done");
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Unknown error");
       setImportStatus("error");
+    } finally {
+      setExtractProgress(null);
+      if (fileRef.current) fileRef.current.value = "";
     }
-    if (fileRef.current) fileRef.current.value = "";
   }
 
   async function downloadArchive() {
@@ -297,7 +313,19 @@ export default function App() {
                      transition-colors text-center">
             <span className="text-2xl mb-2">📦</span>
             {importStatus === "parsing"
-              ? <span className="text-sm text-gray-500">Parsing ZIP...</span>
+              ? <div className="flex flex-col items-center gap-1">
+                  <span className="text-sm text-gray-500">
+                    {extractProgress
+                      ? `Extracting files… ${extractProgress.done}/${extractProgress.total}`
+                      : "Parsing ZIP…"}
+                  </span>
+                  {extractProgress && (
+                    <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-canvas-red rounded-full transition-all"
+                        style={{ width: `${(extractProgress.done / Math.max(extractProgress.total, 1)) * 100}%` }} />
+                    </div>
+                  )}
+                </div>
               : <>
                   <span className="text-sm font-medium text-gray-700">Click to select ZIP file</span>
                   <span className="text-xs text-gray-400 mt-1">submissions_export.zip</span>

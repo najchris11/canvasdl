@@ -338,7 +338,7 @@ export function assignmentsPage(archive: CourseArchive, exportData: ParsedExport
               <ul class="file-list">
                 ${zipAssignment.files.map(f => `<li>
                   <span class="file-icon">${fileIcon(f.mimeType)}</span>
-                  <a href="files/${esc(zipAssignment.name)}/${esc(f.name)}">${esc(f.name)}</a>
+                  <a href="files/${encodeURIComponent(sanitizeFolderName(zipAssignment.name))}/${encodeURIComponent(f.name)}">${esc(f.name)}</a>
                   <span style="color:var(--gray);font-size:.75rem;margin-left:auto">${formatBytes(f.size)}</span>
                 </li>`).join("")}
               </ul>
@@ -516,6 +516,11 @@ export function discussionPage(
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Must match the sanitization used in siteGenerator when writing files to the ZIP
+function sanitizeFolderName(name: string): string {
+  return name.replace(/[/\\?*:|"<>]/g, "_");
+}
 
 function fileIcon(mime: string): string {
   if (mime.startsWith("image/")) return "🖼️";

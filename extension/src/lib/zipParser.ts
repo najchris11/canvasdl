@@ -144,3 +144,16 @@ export async function extractFile(file: File, path: string): Promise<Uint8Array>
   if (!entry) throw new Error(`File not found in ZIP: ${path}`);
   return entry.async("uint8array");
 }
+
+// Iterates all submission file bytes from the ZIP for bulk storage.
+// Yields one file at a time so callers can show progress and write incrementally.
+export async function* iterateFileBytes(
+  file: File
+): AsyncGenerator<{ path: string; bytes: Uint8Array }> {
+  const zip = await JSZip.loadAsync(file);
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir || path.includes("__MACOSX") || path.includes(".DS_Store")) continue;
+    const bytes = await entry.async("uint8array");
+    yield { path, bytes };
+  }
+}
