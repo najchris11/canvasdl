@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ArchiveJob } from "../types/archive";
 import type { CanvasCourse, ExtMessage, TabState } from "../types/canvas";
 import { parseSubmissionsZip } from "../lib/zipParser";
 import { loadExportMeta, saveExportMeta } from "../lib/storage";
@@ -17,28 +18,53 @@ export default function App() {
   const [exportData, setExportData] = useState<ParsedExport | null>(null);
   const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
   const [importError, setImportError] = useState("");
+  const [job, setJob] = useState<ArchiveJob | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pollJobState = useCallback(() => {
+    chrome.runtime.sendMessage({ type: "GET_JOB_STATE" } satisfies ExtMessage, (res: ExtMessage) => {
+      if (res?.type === "JOB_STATE") setJob(res.job);
+    });
+  }, []);
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) { setCanvasStatus("not-canvas"); return; }
-      const msg: ExtMessage = { type: "GET_TAB_STATE", tabId: tab.id };
-      chrome.runtime.sendMessage(msg, (response: ExtMessage) => {
-        if (response?.type === "TAB_STATE" && response.state) {
-          setTabState(response.state);
-          setSelected(new Set(response.state.courses.map((c) => c.id)));
-          setCanvasStatus("ready");
-        } else {
-          setCanvasStatus("not-canvas");
+      chrome.runtime.sendMessage(
+        { type: "GET_TAB_STATE", tabId: tab.id } satisfies ExtMessage,
+        (res: ExtMessage) => {
+          if (res?.type === "TAB_STATE" && res.state) {
+            setTabState(res.state);
+            setSelected(new Set(res.state.courses.map((c) => c.id)));
+            setCanvasStatus("ready");
+          } else {
+            setCanvasStatus("not-canvas");
+          }
         }
-      });
+      );
     });
 
-    // Load any previously imported export metadata
-    loadExportMeta().then((data) => {
-      if (data) setExportData(data);
-    });
-  }, []);
+    loadExportMeta().then((d) => { if (d) setExportData(d); });
+    pollJobState();
+
+    // Listen for live job updates broadcast from background
+    const listener = (msg: ExtMessage) => {
+      if (msg.type === "JOB_STATE") setJob(msg.job);
+    };
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, [pollJobState]);
+
+  // Poll while job is running (background may not be able to push to popup)
+  useEffect(() => {
+    if (job?.status === "running") {
+      pollRef.current = setInterval(pollJobState, 800);
+    } else {
+      if (pollRef.current) clearInterval(pollRef.current);
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [job?.status, pollJobState]);
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -54,8 +80,30 @@ export default function App() {
       setImportError(err instanceof Error ? err.message : "Unknown error");
       setImportStatus("error");
     }
-    // Reset input so same file can be re-imported
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function startArchive() {
+    if (selected.size === 0) return;
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab?.url) return;
+      const { origin } = new URL(tab.url);
+      chrome.runtime.sendMessage({
+        type: "START_ARCHIVE",
+        courseIds: Array.from(selected),
+        baseUrl: origin,
+      } satisfies ExtMessage);
+      setJob({
+        id: Date.now().toString(),
+        courseIds: Array.from(selected),
+        status: "running",
+        currentCourseId: null,
+        step: "Starting...",
+        completedCourses: 0,
+        totalCourses: selected.size,
+        courses: [],
+      });
+    });
   }
 
   function toggleCourse(id: number) {
@@ -72,6 +120,7 @@ export default function App() {
   const visibleCourses = showArchived ? allCourses : active;
   const user = tabState?.env.current_user_email ?? "";
   const onCoursesPage = /\/courses\s*$/.test((tabState?.url ?? "").replace(/\/$/, ""));
+  const isRunning = job?.status === "running";
 
   return (
     <div className="flex flex-col bg-white text-canvas-dark" style={{ width: 360 }}>
@@ -87,26 +136,49 @@ export default function App() {
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
         {(["archive", "import"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setActiveTab(t)}
+          <button key={t} onClick={() => setActiveTab(t)}
             className={`flex-1 py-2 text-xs font-medium capitalize transition-colors
-              ${activeTab === t
-                ? "border-b-2 border-canvas-red text-canvas-red"
-                : "text-gray-500 hover:text-gray-700"}`}
-          >
+              ${activeTab === t ? "border-b-2 border-canvas-red text-canvas-red" : "text-gray-500 hover:text-gray-700"}`}>
             {t === "import" ? "Import Submissions" : "Archive Courses"}
           </button>
         ))}
       </div>
 
-      {/* Archive tab */}
+      {/* ── Archive tab ── */}
       {activeTab === "archive" && (
         <>
-          {canvasStatus === "loading" && (
-            <div className="flex items-center justify-center text-sm text-gray-500 p-8">
-              Checking page...
+          {/* Active job progress */}
+          {job && (job.status === "running" || job.status === "done" || job.status === "error") && (
+            <div className={`px-4 py-3 border-b border-gray-100 ${
+              job.status === "error" ? "bg-red-50" : job.status === "done" ? "bg-green-50" : "bg-blue-50"
+            }`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-gray-700">
+                  {job.status === "done" ? "Archive complete" :
+                   job.status === "error" ? "Error" : "Archiving..."}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {job.completedCourses}/{job.totalCourses}
+                </span>
+              </div>
+              {/* Progress bar */}
+              <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden mb-1">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    job.status === "error" ? "bg-red-400" : "bg-canvas-red"
+                  }`}
+                  style={{ width: `${(job.completedCourses / Math.max(job.totalCourses, 1)) * 100}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 truncate">{job.step}</p>
+              {job.status === "error" && (
+                <p className="text-xs text-red-600 mt-1">{job.errorMessage}</p>
+              )}
             </div>
+          )}
+
+          {canvasStatus === "loading" && (
+            <div className="flex items-center justify-center text-sm text-gray-500 p-8">Checking page...</div>
           )}
 
           {canvasStatus === "not-canvas" && (
@@ -134,12 +206,10 @@ export default function App() {
                 </div>
               )}
 
-              {/* Toolbar */}
               <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 gap-2">
                 <div className="flex gap-2 items-center">
                   <span className="text-xs text-gray-500">
-                    {active.length} active
-                    {archived.length > 0 && `, ${archived.length} archived`}
+                    {active.length} active{archived.length > 0 && `, ${archived.length} archived`}
                   </span>
                   {archived.length > 0 && (
                     <button onClick={() => setShowArchived((v) => !v)}
@@ -156,34 +226,29 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Course list */}
-              <ul className="overflow-y-auto divide-y divide-gray-50 max-h-64">
+              <ul className="overflow-y-auto divide-y divide-gray-50 max-h-56">
                 {visibleCourses.map((course) => (
-                  <CourseRow
-                    key={course.id}
-                    course={course}
-                    checked={selected.has(course.id)}
+                  <CourseRow key={course.id} course={course} checked={selected.has(course.id)}
+                    isRunning={isRunning}
+                    isCurrent={job?.currentCourseId === course.id}
+                    isDone={job?.courses.some((c) => c.courseId === course.id) ?? false}
                     hasSubmissions={exportData?.courses.some((c) => c.id === course.id) ?? false}
-                    onToggle={() => toggleCourse(course.id)}
-                  />
+                    onToggle={() => !isRunning && toggleCourse(course.id)} />
                 ))}
               </ul>
 
-              {/* Footer */}
               <div className="px-4 py-3 border-t border-gray-100">
                 {exportData && (
                   <p className="text-xs text-gray-400 mb-2">
                     Submissions loaded: {exportData.courses.length} courses, {exportData.totalFiles} files
                   </p>
                 )}
-                <button
-                  disabled={selected.size === 0}
+                <button onClick={startArchive} disabled={selected.size === 0 || isRunning}
                   className="w-full bg-canvas-red text-white text-sm font-semibold py-2 rounded
-                             disabled:opacity-40 disabled:cursor-not-allowed
-                             hover:bg-orange-700 transition-colors"
-                >
-                  Archive {selected.size > 0 ? `${selected.size} ` : ""}
-                  {selected.size === 1 ? "Course" : "Courses"}
+                             disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-700 transition-colors">
+                  {isRunning
+                    ? `Archiving ${job.completedCourses}/${job.totalCourses}...`
+                    : `Archive ${selected.size > 0 ? `${selected.size} ` : ""}${selected.size === 1 ? "Course" : "Courses"}`}
                 </button>
               </div>
             </>
@@ -191,46 +256,35 @@ export default function App() {
         </>
       )}
 
-      {/* Import tab */}
+      {/* ── Import tab ── */}
       {activeTab === "import" && (
         <div className="p-4 flex flex-col gap-4">
           <div>
             <p className="text-sm font-medium text-gray-800 mb-1">Import submissions export</p>
             <p className="text-xs text-gray-500">
-              On Canvas, go to <span className="font-mono bg-gray-100 px-1 rounded">Account → Settings → Download Submissions</span> and import the ZIP here.
+              On Canvas go to <span className="font-mono bg-gray-100 px-1 rounded">Account → Settings → Download Submissions</span> and import the ZIP here.
             </p>
           </div>
 
-          {/* Drop zone */}
-          <label
-            className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200
-                       rounded-lg py-6 px-4 cursor-pointer hover:border-canvas-red hover:bg-orange-50
-                       transition-colors text-center"
-          >
+          <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-200
+                     rounded-lg py-6 px-4 cursor-pointer hover:border-canvas-red hover:bg-orange-50
+                     transition-colors text-center">
             <span className="text-2xl mb-2">📦</span>
-            {importStatus === "parsing" ? (
-              <span className="text-sm text-gray-500">Parsing ZIP...</span>
-            ) : (
-              <>
-                <span className="text-sm font-medium text-gray-700">Click to select ZIP file</span>
-                <span className="text-xs text-gray-400 mt-1">submissions_export.zip</span>
-              </>
-            )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={handleFileChange}
-              disabled={importStatus === "parsing"}
-            />
+            {importStatus === "parsing"
+              ? <span className="text-sm text-gray-500">Parsing ZIP...</span>
+              : <>
+                  <span className="text-sm font-medium text-gray-700">Click to select ZIP file</span>
+                  <span className="text-xs text-gray-400 mt-1">submissions_export.zip</span>
+                </>
+            }
+            <input ref={fileRef} type="file" accept=".zip" className="hidden"
+              onChange={handleFileChange} disabled={importStatus === "parsing"} />
           </label>
 
           {importStatus === "error" && (
             <p className="text-xs text-red-600 bg-red-50 rounded p-2">{importError}</p>
           )}
 
-          {/* Summary of imported data */}
           {exportData && (
             <div className="border border-gray-100 rounded-lg overflow-hidden">
               <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
@@ -265,34 +319,33 @@ export default function App() {
 }
 
 function CourseRow({
-  course, checked, hasSubmissions, onToggle,
+  course, checked, hasSubmissions, isRunning, isCurrent, isDone, onToggle,
 }: {
-  course: CanvasCourse;
-  checked: boolean;
-  hasSubmissions: boolean;
+  course: CanvasCourse; checked: boolean; hasSubmissions: boolean;
+  isRunning: boolean; isCurrent: boolean; isDone: boolean;
   onToggle: () => void;
 }) {
   const isArchived = course.status === "archived";
   return (
     <li onClick={onToggle}
-      className="flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-gray-50">
-      <input type="checkbox" readOnly checked={checked} className="accent-canvas-red shrink-0" />
+      className={`flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-gray-50
+        ${isCurrent ? "bg-blue-50" : ""} ${isDone ? "opacity-60" : ""}`}>
+      <input type="checkbox" readOnly checked={checked}
+        className="accent-canvas-red shrink-0" disabled={isRunning} />
       <div className="min-w-0 flex-1">
         <p className={`text-sm truncate ${isArchived ? "text-gray-500" : "font-medium"}`}>
+          {isCurrent && <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5 mb-0.5" />}
           {course.shortName}
         </p>
         {course.term && <p className="text-xs text-gray-400 truncate">{course.term}</p>}
       </div>
       <div className="flex gap-1 shrink-0">
-        {hasSubmissions && (
-          <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded" title="Submissions imported">
-            files
-          </span>
+        {isDone && <span className="text-xs text-green-600">✓</span>}
+        {hasSubmissions && !isDone && (
+          <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">files</span>
         )}
         {isArchived && (
-          <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-            archived
-          </span>
+          <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">archived</span>
         )}
       </div>
     </li>

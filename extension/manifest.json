@@ -3,7 +3,7 @@
   "name": "CanvasDL",
   "version": "0.1.0",
   "description": "Archive your Canvas LMS course data before losing access.",
-  "permissions": ["storage", "downloads", "tabs"],
+  "permissions": ["storage", "downloads", "tabs", "activeTab"],
   "host_permissions": [
     "*://*.instructure.com/*",
     "*://*.osu.edu/*"

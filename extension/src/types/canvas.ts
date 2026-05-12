@@ -31,7 +31,38 @@ export interface CanvasEnv {
   PREFERENCES?: { custom_colors?: Record<string, string> };
   SUBMISSION?: CanvasSubmission;
   COURSE_ID?: number;
-  context_asset_string?: string; // e.g. "course_206252"
+  context_asset_string?: string;
+  // Gradebook page
+  submissions?: GradebookSubmission[];
+  assignment_groups?: AssignmentGroup[];
+}
+
+export interface GradebookSubmission {
+  assignment_id: string;
+  score?: number;
+  workflow_state?: string;
+  submission_type?: string;
+  submitted_at?: string;
+  excused?: boolean;
+  submission_comments?: {
+    id: string;
+    author_name: string;
+    comment: string;
+    created_at: string;
+  }[];
+}
+
+export interface AssignmentGroup {
+  id: string;
+  name?: string;
+  group_weight?: number;
+  assignments: {
+    id: string;
+    points_possible: number;
+    due_at: string | null;
+    submission_types: string[];
+    omit_from_final_grade: boolean;
+  }[];
 }
 
 // Messages between content script ↔ background ↔ popup
@@ -40,9 +71,22 @@ export type ExtMessage =
   | { type: "COURSES_SCRAPED"; courses: CanvasCourse[] }
   | { type: "GET_TAB_STATE"; tabId: number }
   | { type: "TAB_STATE"; state: TabState | null }
-  | { type: "START_ARCHIVE"; courseIds: number[] }
-  | { type: "ARCHIVE_PROGRESS"; courseId: number; step: string; pct: number }
-  | { type: "ARCHIVE_DONE"; outputUrl: string };
+  | { type: "START_ARCHIVE"; courseIds: number[]; baseUrl: string }
+  | { type: "SCRAPE_PAGE" }
+  | { type: "SCRAPE_RESULT"; data: ScrapeResult }
+  | { type: "GET_JOB_STATE" }
+  | { type: "JOB_STATE"; job: import("./archive").ArchiveJob | null }
+  | { type: "ARCHIVE_DONE"; downloadUrl: string };
+
+export type ScrapeResult =
+  | { page: "grades"; data: import("./archive").GradeEntry[] }
+  | { page: "modules"; data: import("./archive").Module[] }
+  | { page: "assignment"; data: import("./archive").AssignmentData }
+  | { page: "assignment_list"; data: { id: string; name: string; url: string }[] }
+  | { page: "discussion"; data: import("./archive").Discussion }
+  | { page: "discussion_list"; data: { id: string; title: string; url: string }[] }
+  | { page: "announcements"; data: import("./archive").Discussion[] }
+  | { page: "unknown"; data: null };
 
 export interface TabState {
   url: string;
