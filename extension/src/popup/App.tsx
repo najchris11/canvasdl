@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ArchiveJob } from "../types/archive";
 import type { CanvasCourse, ExtMessage, TabState } from "../types/canvas";
 import { parseSubmissionsZip } from "../lib/zipParser";
-import { loadExportMeta, saveExportMeta } from "../lib/storage";
+import { loadExportMeta, loadArchiveZip, saveExportMeta } from "../lib/storage";
 import type { ParsedExport } from "../lib/zipParser";
 
 type CanvasStatus = "loading" | "not-canvas" | "ready";
@@ -81,6 +81,18 @@ export default function App() {
       setImportStatus("error");
     }
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function downloadArchive() {
+    const bytes = await loadArchiveZip();
+    if (!bytes) return;
+    const blob = new Blob([bytes], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `canvasdl-archive-${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   function startArchive() {
@@ -237,19 +249,28 @@ export default function App() {
                 ))}
               </ul>
 
-              <div className="px-4 py-3 border-t border-gray-100">
+              <div className="px-4 py-3 border-t border-gray-100 flex flex-col gap-2">
                 {exportData && (
-                  <p className="text-xs text-gray-400 mb-2">
+                  <p className="text-xs text-gray-400">
                     Submissions loaded: {exportData.courses.length} courses, {exportData.totalFiles} files
                   </p>
                 )}
-                <button onClick={startArchive} disabled={selected.size === 0 || isRunning}
-                  className="w-full bg-canvas-red text-white text-sm font-semibold py-2 rounded
-                             disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-700 transition-colors">
-                  {isRunning
-                    ? `Archiving ${job.completedCourses}/${job.totalCourses}...`
-                    : `Archive ${selected.size > 0 ? `${selected.size} ` : ""}${selected.size === 1 ? "Course" : "Courses"}`}
-                </button>
+                {job?.status === "done" ? (
+                  <button
+                    onClick={downloadArchive}
+                    className="w-full bg-green-600 text-white text-sm font-semibold py-2 rounded hover:bg-green-700 transition-colors"
+                  >
+                    Download Archive (.zip)
+                  </button>
+                ) : (
+                  <button onClick={startArchive} disabled={selected.size === 0 || isRunning}
+                    className="w-full bg-canvas-red text-white text-sm font-semibold py-2 rounded
+                               disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-700 transition-colors">
+                    {isRunning
+                      ? `Archiving ${job.completedCourses}/${job.totalCourses}...`
+                      : `Archive ${selected.size > 0 ? `${selected.size} ` : ""}${selected.size === 1 ? "Course" : "Courses"}`}
+                  </button>
+                )}
               </div>
             </>
           )}

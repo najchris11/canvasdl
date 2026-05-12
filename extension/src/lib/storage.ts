@@ -1,16 +1,19 @@
 import type { ParsedExport } from "./zipParser";
 
 const DB_NAME = "canvasdl";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_META = "exportMeta";
 const STORE_FILES = "exportFiles";
+const STORE_ARCHIVE = "archiveOutput";
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE_META);
-      req.result.createObjectStore(STORE_FILES);
+    req.onupgradeneeded = (e) => {
+      const db = (e.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_META)) db.createObjectStore(STORE_META);
+      if (!db.objectStoreNames.contains(STORE_FILES)) db.createObjectStore(STORE_FILES);
+      if (!db.objectStoreNames.contains(STORE_ARCHIVE)) db.createObjectStore(STORE_ARCHIVE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -35,7 +38,6 @@ function idbGet<T>(db: IDBDatabase, store: string, key: string): Promise<T | und
   });
 }
 
-// Saves the parsed export metadata (no file bytes — those stay in the ZIP).
 export async function saveExportMeta(data: ParsedExport): Promise<void> {
   const db = await openDB();
   await idbPut(db, STORE_META, "latest", data);
@@ -49,7 +51,6 @@ export async function loadExportMeta(): Promise<ParsedExport | undefined> {
   return result;
 }
 
-// Saves a file's raw bytes keyed by its ZIP path, for later use during archiving.
 export async function saveFileBytes(path: string, bytes: Uint8Array): Promise<void> {
   const db = await openDB();
   await idbPut(db, STORE_FILES, path, bytes);
@@ -59,6 +60,20 @@ export async function saveFileBytes(path: string, bytes: Uint8Array): Promise<vo
 export async function loadFileBytes(path: string): Promise<Uint8Array | undefined> {
   const db = await openDB();
   const result = await idbGet<Uint8Array>(db, STORE_FILES, path);
+  db.close();
+  return result;
+}
+
+// Generated archive ZIP — stored so popup can trigger download after popup reopens
+export async function saveArchiveZip(bytes: Uint8Array): Promise<void> {
+  const db = await openDB();
+  await idbPut(db, STORE_ARCHIVE, "latest", bytes);
+  db.close();
+}
+
+export async function loadArchiveZip(): Promise<Uint8Array | undefined> {
+  const db = await openDB();
+  const result = await idbGet<Uint8Array>(db, STORE_ARCHIVE, "latest");
   db.close();
   return result;
 }

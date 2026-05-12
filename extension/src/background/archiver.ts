@@ -1,6 +1,7 @@
 import type { ArchiveJob, CourseArchive } from "../types/archive";
 import type { CanvasCourse, ExtMessage, ScrapeResult } from "../types/canvas";
-import { saveExportMeta } from "../lib/storage";
+import { loadExportMeta, saveArchiveZip } from "../lib/storage";
+import { generateArchiveSite } from "../lib/siteGenerator";
 
 type QueueItem = { url: string; courseId: number; purpose: string };
 
@@ -48,6 +49,13 @@ export async function startArchive(
       activeJob.completedCourses++;
       broadcastJobState();
     }
+
+    activeJob.step = "Generating archive...";
+    broadcastJobState();
+
+    const exportMeta = await loadExportMeta();
+    const zipBytes = await generateArchiveSite(activeJob, exportMeta ?? null);
+    await saveArchiveZip(zipBytes);
 
     activeJob.status = "done";
     activeJob.step = "Complete";
@@ -210,5 +218,3 @@ export function getJobData(): ArchiveJob | null {
   return activeJob;
 }
 
-// Re-export for storage persistence
-export { saveExportMeta };
