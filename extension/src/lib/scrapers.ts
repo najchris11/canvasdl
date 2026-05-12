@@ -6,6 +6,9 @@ import type {
   GradeEntry,
   Module,
   ModuleItem,
+  QuizAnswer,
+  QuizData,
+  QuizQuestion,
 } from "../types/archive";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +157,12 @@ export function scrapeAssignment(doc: Document, env: CanvasEnv, url: string): As
   const descriptionHtml = descEl?.innerHTML?.trim() ?? "";
 
   const sub = env.SUBMISSION;
+  const isQuiz = sub?.submission?.submission_type === "online_quiz";
+  const userId = sub?.user_id ?? null;
+  const quizPreviewUrl = (isQuiz && userId && id)
+    ? `${new URL(url).origin}/courses/${new URL(url).pathname.match(/\/courses\/(\d+)/)?.[1]}/assignments/${id}/submissions/${userId}?preview=1`
+    : null;
+
   return {
     id,
     name,
@@ -164,7 +173,78 @@ export function scrapeAssignment(doc: Document, env: CanvasEnv, url: string): As
     submittedAt: sub?.submission?.submitted_at ?? null,
     submissionType: sub?.submission?.submission_type ?? null,
     submissionBody: sub?.submission?.body ?? null,
+    quizPreviewUrl,
+    quizData: null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Quiz preview page  (/courses/{id}/assignments/{id}/submissions/{uid}?preview=1)
+// Parses the #questions DOM scraped from the quiz review iframe URL.
+// ---------------------------------------------------------------------------
+export function scrapeQuizPreview(doc: Document): QuizData {
+  const questions: QuizQuestion[] = [];
+
+  doc.querySelectorAll<HTMLElement>(".display_question").forEach((qEl) => {
+    const idMatch = qEl.id?.match(/question_(\d+)/);
+    if (!idMatch) return;
+    const id = idMatch[1];
+
+    const typeEl = qEl.querySelector<HTMLElement>(".question_type");
+    const type = typeEl?.textContent?.trim() ?? "unknown";
+
+    const indicatorEl = qEl.querySelector<HTMLElement>(".answer_indicator");
+    const indicatorClass = indicatorEl?.className ?? "";
+    const correct = indicatorClass.includes("correct") && !indicatorClass.includes("incorrect")
+      ? true
+      : indicatorClass.includes("incorrect")
+      ? false
+      : null;
+
+    // Points: first text node of .user_points is the earned score
+    const userPtsEl = qEl.querySelector<HTMLElement>(".user_points");
+    let pointsEarned: number | null = null;
+    if (userPtsEl) {
+      const firstText = Array.from(userPtsEl.childNodes)
+        .find(n => n.nodeType === 3)?.textContent?.trim() ?? null;
+      if (firstText) pointsEarned = parseFloat(firstText);
+    }
+    const ptsPossibleEl = qEl.querySelector<HTMLElement>(".question_points");
+    const ptsPossibleText = ptsPossibleEl?.textContent?.replace(/[^\d.]/g, "") ?? null;
+    const pointsPossible = ptsPossibleText ? parseFloat(ptsPossibleText) : null;
+
+    const questionTextEl = doc.getElementById(`question_${id}_question_text`);
+    const questionText = questionTextEl?.innerHTML?.trim() ?? "";
+
+    const answers: QuizAnswer[] = [];
+    qEl.querySelectorAll<HTMLElement>(".answers .answer").forEach((aEl) => {
+      const aid = aEl.id?.replace("answer_", "") ?? "";
+      if (!aid) return;
+      const cls = aEl.className;
+      const isSelected = cls.includes("selected_answer");
+      const isCorrect = cls.includes("correct_answer");
+
+      let text = aEl.querySelector<HTMLElement>(".answer_text")?.textContent?.trim() ?? "";
+      let matchLeft: string | undefined;
+      let matchRight: string | undefined;
+
+      if (type === "matching_question") {
+        matchLeft = aEl.querySelector<HTMLElement>(".answer_match_left")?.textContent?.trim();
+        const selectedOpt = aEl.querySelector<HTMLOptionElement>(".answer_match_right select option[selected]");
+        matchRight = selectedOpt?.textContent?.trim()
+          ?? aEl.querySelector<HTMLElement>(".answer_match_right")?.textContent?.trim();
+        if (matchLeft) text = matchLeft;
+      }
+
+      const comment = aEl.querySelector<HTMLElement>(".answer_comment")?.textContent?.trim() || undefined;
+
+      answers.push({ id: aid, text, isCorrect, isSelected, matchLeft, matchRight, comment });
+    });
+
+    questions.push({ id, type, questionText, correct, pointsEarned, pointsPossible, answers } satisfies QuizQuestion);
+  });
+
+  return { questions };
 }
 
 // ---------------------------------------------------------------------------
@@ -265,15 +345,18 @@ export type PageType =
   | "modules"
   | "assignment_list"
   | "assignment"
+  | "quiz_preview"
   | "discussion_list"
   | "discussion"
   | "announcements"
   | "unknown";
 
 export function detectPageType(url: string): PageType {
-  const path = new URL(url).pathname;
+  const u = new URL(url);
+  const path = u.pathname;
   if (/\/grades\s*$/.test(path)) return "grades";
   if (/\/modules\s*$/.test(path)) return "modules";
+  if (/\/submissions\/\d+/.test(path) && u.searchParams.has("preview")) return "quiz_preview";
   if (/\/assignments\/\d+/.test(path)) return "assignment";
   if (/\/assignments\s*$/.test(path)) return "assignment_list";
   if (/\/discussion_topics\/\d+/.test(path)) return "discussion";

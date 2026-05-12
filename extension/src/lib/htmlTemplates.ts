@@ -1,4 +1,4 @@
-import type { ArchiveJob, CourseArchive, GradeEntry, Discussion, DiscussionPost } from "../types/archive";
+import type { ArchiveJob, AssignmentData, CourseArchive, GradeEntry, Discussion, DiscussionPost } from "../types/archive";
 import type { ParsedExport } from "./zipParser";
 
 // ─── Shared CSS ──────────────────────────────────────────────────────────────
@@ -116,6 +116,30 @@ details[open] summary::after{transform:rotate(90deg)}
 .disc-list a{display:flex;flex-direction:column;padding:.75rem;border:1px solid var(--border);border-radius:6px;margin-bottom:.5rem;color:inherit}
 .disc-list a:hover{border-color:var(--red);text-decoration:none;background:var(--light)}
 .disc-list .disc-meta{font-size:.8rem;color:var(--gray);margin-top:.2rem}
+
+/* Quiz */
+.quiz-q{border:1px solid var(--border);border-radius:8px;margin-bottom:1rem;overflow:hidden}
+.quiz-q .q-head{padding:.875rem 1.25rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;background:var(--light)}
+.quiz-q .q-head.correct{background:#d1fae5}.quiz-q .q-head.incorrect{background:#fee2e2}
+.q-label{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--gray)}
+.q-pts{font-size:.875rem;font-weight:600;white-space:nowrap}
+.q-body{padding:1.25rem}
+.q-text{line-height:1.75;margin-bottom:1rem}
+.q-text img{max-width:100%;border-radius:4px}
+.ans-list{list-style:none}
+.ans-row{display:flex;align-items:flex-start;gap:.625rem;padding:.4rem .5rem;border-radius:4px;margin-bottom:.25rem;font-size:.9rem;line-height:1.5}
+.ans-row.selected{background:#fef3c7}
+.ans-row.is-correct{background:#d1fae5}
+.ans-row.selected.is-correct{background:#d1fae5}
+.ans-row.selected.is-wrong{background:#fee2e2}
+.ans-icon{min-width:1.25rem;font-size:.875rem}
+.match-pair{display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;border-radius:4px;margin-bottom:.25rem;font-size:.9rem}
+.match-pair.is-correct{background:#d1fae5}.match-pair.is-wrong{background:#fee2e2}
+.match-arrow{color:var(--gray);flex-shrink:0}
+.q-comment{font-size:.8rem;color:#065f46;background:#d1fae5;border-radius:4px;padding:.3rem .5rem;margin-top:.35rem}
+.answers-hidden .q-body{display:none}
+.toggle-btn{padding:.35rem .75rem;font-size:.8rem;border:1px solid var(--border);border-radius:4px;background:#fff;cursor:pointer;color:var(--dark)}
+.toggle-btn:hover{background:var(--light)}
 
 /* Summary stats */
 .stats-row{display:flex;gap:1.5rem;margin-bottom:1.5rem;flex-wrap:wrap}
@@ -334,6 +358,9 @@ export function assignmentsPage(archive: CourseArchive, exportData: ParsedExport
               <h4 style="font-size:.8rem;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.75rem">Prompt</h4>
               <div class="desc-content">${detail.descriptionHtml}</div>
             ` : ""}
+            ${detail?.quizData ? `
+              <a href="quizzes/${esc(detail.id)}.html" style="display:inline-block;margin-bottom:.75rem;padding:.35rem .875rem;background:var(--red);color:#fff;border-radius:4px;font-size:.85rem;font-weight:600">View Quiz Questions →</a>
+            ` : ""}
             ${detail?.submissionBody ? `
               <h4 style="font-size:.8rem;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin:.75rem 0 .5rem">Your Submission</h4>
               <div class="submission-body">${esc(detail.submissionBody)}</div>
@@ -544,6 +571,123 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ─── courses/{id}/quizzes/{aid}.html ─────────────────────────────────────────
+
+export function quizPage(detail: AssignmentData, archive: CourseArchive): string {
+  const relRoot = "../../../";
+  const quiz = detail.quizData!;
+
+  function typeLabel(type: string): string {
+    return type.replace(/_question$/, "").replace(/_/g, " ");
+  }
+
+  function renderAnswers(q: import("../types/archive").QuizQuestion): string {
+    if (!q.answers.length) return "";
+
+    if (q.type === "matching_question") {
+      return `<ul class="ans-list">${q.answers.map(a => {
+        const cls = a.isCorrect ? "is-correct" : "is-wrong";
+        return `<li class="match-pair ${cls}">
+          <span class="ans-icon">${a.isCorrect ? "✓" : "✗"}</span>
+          <span>${esc(a.matchLeft ?? a.text)}</span>
+          <span class="match-arrow">→</span>
+          <span>${esc(a.matchRight ?? "")}</span>
+          ${a.comment ? `<span class="q-comment">${esc(a.comment)}</span>` : ""}
+        </li>`;
+      }).join("")}</ul>`;
+    }
+
+    return `<ul class="ans-list">${q.answers.map(a => {
+      let cls = "";
+      if (a.isSelected && a.isCorrect) cls = "selected is-correct";
+      else if (a.isSelected && !a.isCorrect) cls = "selected is-wrong";
+      else if (!a.isSelected && a.isCorrect) cls = "is-correct";
+      const icon = a.isSelected
+        ? (a.isCorrect ? "✓" : "✗")
+        : (a.isCorrect ? "○" : "");
+      return `<li class="ans-row ${cls}">
+        <span class="ans-icon">${icon}</span>
+        <span>${esc(a.text)}</span>
+        ${a.comment ? `<div class="q-comment">${esc(a.comment)}</div>` : ""}
+      </li>`;
+    }).join("")}</ul>`;
+  }
+
+  const totalEarned = quiz.questions.reduce((s, q) => s + (q.pointsEarned ?? 0), 0);
+  const totalPossible = quiz.questions.reduce((s, q) => s + (q.pointsPossible ?? 0), 0);
+  const correct = quiz.questions.filter(q => q.correct === true).length;
+  const incorrect = quiz.questions.filter(q => q.correct === false).length;
+
+  const questionsHtml = quiz.questions.map((q, i) => {
+    const headCls = q.correct === true ? "correct" : q.correct === false ? "incorrect" : "";
+    const ptsTxt = q.pointsEarned !== null && q.pointsPossible !== null
+      ? `${q.pointsEarned} / ${q.pointsPossible} pts`
+      : q.pointsPossible !== null ? `— / ${q.pointsPossible} pts` : "";
+    return `<div class="quiz-q answers-hidden" id="q${esc(q.id)}">
+      <div class="q-head ${headCls}">
+        <div>
+          <div style="font-weight:600;margin-bottom:.2rem">Question ${i + 1}</div>
+          <div class="q-label">${esc(typeLabel(q.type))}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:.75rem">
+          ${ptsTxt ? `<span class="q-pts">${esc(ptsTxt)}</span>` : ""}
+          <button class="toggle-btn" onclick="toggleQ(this)" type="button">Show answer</button>
+        </div>
+      </div>
+      <div class="q-body">
+        <div class="q-text">${q.questionText || "<em>No question text</em>"}</div>
+        ${renderAnswers(q)}
+      </div>
+    </div>`;
+  }).join("");
+
+  const toggleScript = `<script>
+function toggleQ(btn){
+  var card=btn.closest('.quiz-q');
+  var hidden=card.classList.toggle('answers-hidden');
+  btn.textContent=hidden?'Show answer':'Hide answer';
+}
+function toggleAll(btn){
+  var all=document.querySelectorAll('.quiz-q');
+  var anyHidden=Array.from(all).some(function(c){return c.classList.contains('answers-hidden');});
+  all.forEach(function(c){
+    c.classList.toggle('answers-hidden',!anyHidden);
+    var b=c.querySelector('.toggle-btn');
+    if(b) b.textContent=anyHidden?'Hide answer':'Show answer';
+  });
+  btn.textContent=anyHidden?'Hide all answers':'Show all answers';
+}
+</script>`;
+
+  const content = `
+    <div class="page-header">
+      <h1>${esc(detail.name)}</h1>
+      <div class="meta">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}</div>
+    </div>
+    <p style="margin-bottom:1.25rem"><a href="../assignments.html#a${esc(detail.id)}">← Back to Assignments</a></p>
+    <div class="stats-row" style="margin-bottom:1.5rem">
+      <div class="stat-box"><div class="val">${quiz.questions.length}</div><div class="lbl">Questions</div></div>
+      ${correct > 0 || incorrect > 0 ? `<div class="stat-box"><div class="val">${correct}</div><div class="lbl">Correct</div></div>
+      <div class="stat-box"><div class="val">${incorrect}</div><div class="lbl">Incorrect</div></div>` : ""}
+      ${totalPossible > 0 ? `<div class="stat-box"><div class="val">${totalEarned} / ${totalPossible}</div><div class="lbl">Points</div></div>` : ""}
+    </div>
+    <div style="margin-bottom:1.25rem">
+      <button class="toggle-btn" onclick="toggleAll(this)" type="button">Show all answers</button>
+    </div>
+    ${questionsHtml}
+    ${toggleScript}
+  `;
+
+  return shell(`${detail.name} — ${archive.courseName}`, relRoot,
+    `<span class="nav-sep">/</span>
+     <a href="../index.html" class="nav-crumb">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}</a>
+     <span class="nav-sep">/</span>
+     <a href="../assignments.html" class="nav-crumb">Assignments</a>
+     <span class="nav-sep">/</span><span class="nav-crumb">${esc(detail.name)}</span>`,
+    content
+  );
 }
 
 // ─── search.html ──────────────────────────────────────────────────────────────

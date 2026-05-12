@@ -101,7 +101,7 @@ async function scrapeCourse(
   const modulesResult = await scrapeTab(tabId);
   if (modulesResult.page === "modules") archive.modules = modulesResult.data;
 
-  // 3. Assignment list → then each assignment detail
+  // 3. Assignment list → then each assignment detail (+ quiz preview if applicable)
   await visit(tabId, `${base}/assignments`, courseName, "loading assignments");
   const listResult = await scrapeTab(tabId);
   if (listResult.page === "assignment_list") {
@@ -111,7 +111,18 @@ async function scrapeCourse(
       setStep(`${courseName}: assignment ${i + 1}/${assignmentStubs.length}`);
       await visit(tabId, stub.url, courseName, `assignment ${i + 1}/${assignmentStubs.length}`);
       const result = await scrapeTab(tabId);
-      if (result.page === "assignment") archive.assignments.push(result.data);
+      if (result.page === "assignment") {
+        const assignment = result.data;
+        if (assignment.quizPreviewUrl) {
+          setStep(`${courseName}: quiz ${i + 1}/${assignmentStubs.length}`);
+          await visit(tabId, assignment.quizPreviewUrl, courseName, `quiz ${i + 1}/${assignmentStubs.length}`);
+          const quizResult = await scrapeTab(tabId);
+          if (quizResult.page === "quiz_preview") {
+            assignment.quizData = quizResult.data;
+          }
+        }
+        archive.assignments.push(assignment);
+      }
     }
   }
 

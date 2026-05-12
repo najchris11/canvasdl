@@ -8,6 +8,7 @@ import {
   scrapeDiscussionList,
   scrapeGrades,
   scrapeModules,
+  scrapeQuizPreview,
 } from "../lib/scrapers";
 
 let capturedEnv: CanvasEnv | null = null;
@@ -80,6 +81,8 @@ function handleScrapePage(): ScrapeResult {
       return { page: "discussion_list", data: scrapeDiscussionList(document) };
     case "discussion":
       return { page: "discussion", data: scrapeDiscussion(document, url) };
+    case "quiz_preview":
+      return { page: "quiz_preview", data: scrapeQuizPreview(document) };
     case "announcements":
       return { page: "announcements", data: scrapeAnnouncementList(document).map((d) => ({
         ...d, posts: [], totalPages: 0

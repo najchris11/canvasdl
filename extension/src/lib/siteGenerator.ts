@@ -11,6 +11,7 @@ import {
   modulesPage,
   discussionListPage,
   discussionPage,
+  quizPage,
   buildSearchHtml,
 } from "./htmlTemplates";
 import { buildSearchIndex } from "./searchIndexer";
@@ -47,6 +48,13 @@ export async function generateArchiveSite(
     zip.file(`${base}/assignments.html`, assignmentsPage(archive, exportData));
     zip.file(`${base}/grades.html`, gradesPage(archive));
     zip.file(`${base}/modules.html`, modulesPage(archive));
+
+    // Quiz pages — one per assignment with quiz data
+    for (const assignment of archive.assignments) {
+      if (assignment.quizData) {
+        zip.file(`${base}/quizzes/${assignment.id}.html`, quizPage(assignment, archive));
+      }
+    }
 
     zip.file(`${base}/discussions/index.html`, discussionListPage(archive, "discussions"));
     for (const disc of archive.discussions) {

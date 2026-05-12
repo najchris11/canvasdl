@@ -12,6 +12,7 @@ export interface CanvasCourse {
 export interface CanvasSubmission {
   assignment_id: string;
   points_possible: number;
+  user_id: string;
   submission: {
     grade: string | null;
     score: number | null;
@@ -86,6 +87,7 @@ export type ScrapeResult =
   | { page: "discussion"; data: import("./archive").Discussion }
   | { page: "discussion_list"; data: { id: string; title: string; url: string }[] }
   | { page: "announcements"; data: import("./archive").Discussion[] }
+  | { page: "quiz_preview"; data: import("./archive").QuizData }
   | { page: "unknown"; data: null };
 
 export interface TabState {

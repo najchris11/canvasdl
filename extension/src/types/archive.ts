@@ -19,6 +19,30 @@ export interface GradeEntry {
   comments: InstructorComment[];
 }
 
+export interface QuizAnswer {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+  isSelected: boolean;
+  matchLeft?: string;
+  matchRight?: string;
+  comment?: string;
+}
+
+export interface QuizQuestion {
+  id: string;
+  type: string;
+  questionText: string;
+  correct: boolean | null;
+  pointsEarned: number | null;
+  pointsPossible: number | null;
+  answers: QuizAnswer[];
+}
+
+export interface QuizData {
+  questions: QuizQuestion[];
+}
+
 export interface AssignmentData {
   id: string;
   name: string;
@@ -28,7 +52,9 @@ export interface AssignmentData {
   pointsPossible: number | null;
   submittedAt: string | null;
   submissionType: string | null;
-  submissionBody: string | null; // text submissions
+  submissionBody: string | null;
+  quizPreviewUrl: string | null;
+  quizData: QuizData | null;
 }
 
 export interface ModuleItem {
