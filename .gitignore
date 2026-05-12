@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Dependencies
+extension/node_modules/
+
+# Build output
+extension/dist/
+
+# Sample/test files (local only)
+samples/

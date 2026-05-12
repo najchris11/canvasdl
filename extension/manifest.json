@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "CanvasDL",
+  "version": "0.1.0",
+  "description": "Archive your Canvas LMS course data before losing access.",
+  "permissions": ["storage", "downloads", "tabs"],
+  "host_permissions": [
+    "*://*.instructure.com/*",
+    "*://*.osu.edu/*"
+  ],
+  "action": {
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.instructure.com/*", "*://*.osu.edu/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/injected/index.js"],
+      "matches": ["*://*.instructure.com/*", "*://*.osu.edu/*"]
+    }
+  ]
+}
