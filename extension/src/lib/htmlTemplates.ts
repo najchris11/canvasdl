@@ -150,6 +150,11 @@ function shell(
 <nav class="nav">
   <a href="${relRoot}index.html" class="nav-brand">CanvasDL</a>
   ${nav}
+  <form class="nav-search" action="${relRoot}search.html" method="get" style="margin-left:auto">
+    <input name="q" type="search" placeholder="Search archive…" autocomplete="off"
+      style="background:#3d4f5c;border:none;border-radius:4px;color:#fff;font-size:.8rem;padding:.3rem .6rem;width:160px;outline:none"
+      onfocus="this.style.background='#4a5f6e'" onblur="this.style.background='#3d4f5c'">
+  </form>
 </nav>
 <main class="container">
 ${content}
@@ -539,4 +544,94 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ─── search.html ──────────────────────────────────────────────────────────────
+// Fully self-contained: embeds the serialized lunr index + lunr runtime inline
+// so it works on file:// with zero network requests.
+
+// ─── search.html ──────────────────────────────────────────────────────────────
+export function buildSearchHtml(
+  indexJson: string,
+  docsJson: string,
+  lunrSource: string
+): string {
+  const runtime = `
+(function() {
+  var idx = lunr.Index.load(JSON.parse(document.getElementById('search-index').textContent));
+  var docs = JSON.parse(document.getElementById('search-docs').textContent);
+  var typeLabel = { assignment: 'Assignment', discussion: 'Discussion', announcement: 'Announcement', module: 'Module' };
+  var typeColor = { assignment: '#E66000', discussion: '#3b82f6', announcement: '#8b5cf6', module: '#6b7280' };
+  function getQuery() { return new URLSearchParams(location.search).get('q') || ''; }
+  function render(q) {
+    document.getElementById('search-input').value = q;
+    document.title = (q ? '"' + q + '" \\u2014 ' : '') + 'Search \\u2014 CanvasDL';
+    var out = document.getElementById('results');
+    if (!q.trim()) { out.innerHTML = '<p style="color:var(--gray)">Enter a query above.</p>'; return; }
+    var results;
+    try { results = idx.search(q + ' ' + q.split(/\\s+/).map(function(t){return t+'*';}).join(' ')); } catch(e) { results = []; }
+    if (!results.length) { out.innerHTML = '<p style="color:var(--gray)">No results for <strong>' + q.replace(/</g,'&lt;') + '</strong>.</p>'; return; }
+    var groups = {};
+    results.forEach(function(r) {
+      var doc = docs[r.ref]; if (!doc) return;
+      if (!groups[doc.courseId]) groups[doc.courseId] = { name: doc.courseName, items: [] };
+      groups[doc.courseId].items.push(doc);
+    });
+    var html = Object.values(groups).map(function(g) {
+      return '<div style="margin-bottom:1.5rem"><h2 style="font-size:.8rem;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem">' + g.name + '</h2>' +
+        g.items.map(function(doc) {
+          var snippet = doc.body.replace(/<[^>]+>/g,'').slice(0, 160);
+          if (snippet.length===160) snippet += '\\u2026';
+          return '<a href="' + doc.url + '" style="display:block;padding:.75rem;border:1px solid var(--border);border-radius:6px;margin-bottom:.375rem;color:inherit;text-decoration:none" onmouseover="this.style.borderColor=\\'var(--red)\\'" onmouseout="this.style.borderColor=\\'var(--border)\\'">' +
+            '<div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem">' +
+              '<span style="font-size:.7rem;font-weight:600;padding:.1rem .4rem;border-radius:999px;background:' + (typeColor[doc.type]||'#888') + '20;color:' + (typeColor[doc.type]||'#888') + '">' + (typeLabel[doc.type]||doc.type) + '</span>' +
+              '<span style="font-weight:600;font-size:.9rem">' + doc.title.replace(/</g,'&lt;') + '</span>' +
+            '</div>' +
+            (snippet ? '<div style="font-size:.8rem;color:var(--gray);line-height:1.5">' + snippet.replace(/</g,'&lt;') + '</div>' : '') +
+          '</a>';
+        }).join('') + '</div>';
+    }).join('');
+    out.innerHTML = html;
+  }
+  document.getElementById('search-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var q = document.getElementById('search-input').value;
+    history.pushState({}, '', '?q=' + encodeURIComponent(q));
+    render(q);
+  });
+  document.getElementById('search-input').addEventListener('input', function() { render(this.value); });
+  render(getQuery());
+})();
+`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Search \u2014 CanvasDL</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<nav class="nav">
+  <a href="index.html" class="nav-brand">CanvasDL</a>
+  <span class="nav-sep">/</span>
+  <span class="nav-crumb">Search</span>
+</nav>
+<main class="container">
+  <div class="page-header"><h1>Search</h1></div>
+  <form id="search-form" style="margin-bottom:1.5rem">
+    <input id="search-input" type="search" name="q" placeholder="Search assignments, discussions, announcements\u2026"
+      autocomplete="off"
+      style="width:100%;padding:.625rem .875rem;font-size:1rem;border:2px solid var(--border);border-radius:6px;outline:none;color:var(--dark);font-family:inherit"
+      onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border)'">
+  </form>
+  <div id="results"><p style="color:var(--gray)">Enter a query above.</p></div>
+</main>
+<script type="application/json" id="search-index">${indexJson}</script>
+<script type="application/json" id="search-docs">${docsJson}</script>
+<script>${lunrSource}</script>
+<script>${runtime}</script>
+</body>
+</html>`;
 }

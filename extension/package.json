@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "@types/jszip": "^3.4.0",
+    "@types/lunr": "^2.3.7",
     "jszip": "^3.10.1",
+    "lunr": "^2.3.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
