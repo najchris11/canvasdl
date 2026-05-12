@@ -269,7 +269,8 @@ export function scrapeDiscussionList(doc: Document): { id: string; title: string
 
 // ---------------------------------------------------------------------------
 // Discussion thread  (/courses/{id}/discussion_topics/{id})
-// Handles flat + nested posts. Pagination detected via DOM.
+// Canvas "redesigned discussions" UI: entries are [data-entry-id] divs,
+// each containing a [data-entry-wrapper-id] span with author/date/content.
 // ---------------------------------------------------------------------------
 export function scrapeDiscussion(doc: Document, url: string): Discussion {
   const idMatch = url.match(/\/discussion_topics\/(\d+)/);
@@ -277,36 +278,53 @@ export function scrapeDiscussion(doc: Document, url: string): Discussion {
   const title =
     doc.querySelector("h1.discussion-title")?.textContent?.trim() ??
     doc.querySelector(".discussion-title")?.textContent?.trim() ??
+    doc.querySelector("[data-testid='discussion-topic-container'] h1")?.textContent?.trim() ??
     doc.title.trim();
 
-  function extractPost(el: Element): DiscussionPost {
-    const entryId = el.getAttribute("data-entry-id") ?? el.id ?? "";
-    const authorEl = el.querySelector<HTMLElement>("[data-testid='author_avatar'], .author");
-    const authorName = authorEl?.getAttribute("name") ?? authorEl?.textContent?.trim() ?? "Unknown";
-    const contentEl = el.querySelector<HTMLElement>("[data-testid='post-message-container'], .message");
-    const contentHtml = contentEl?.innerHTML?.trim() ?? "";
-    const dateStr = el.getAttribute("aria-label")?.match(/from (.+)$/)?.[1] ?? "";
+  const allEntryEls = Array.from(doc.querySelectorAll<HTMLElement>("[data-entry-id]"));
 
-    // Recurse into direct child reply wrappers
+  function extractPost(el: HTMLElement): DiscussionPost {
+    const entryId = el.getAttribute("data-entry-id") ?? "";
+
+    // The wrapper span holds all post metadata and content
+    const wrapperEl = el.querySelector<HTMLElement>(`[data-entry-wrapper-id="${entryId}"]`);
+
+    // Author name
+    const authorName =
+      el.querySelector<HTMLElement>("[data-testid='author_name']")?.textContent?.trim() ??
+      "Unknown";
+
+    // Post body HTML — Canvas stores it in a .user_content span with data-resource-type
+    const contentEl = wrapperEl?.querySelector<HTMLElement>(
+      ".userMessage .user_content, .user_content[data-resource-type]"
+    );
+    const contentHtml = contentEl?.innerHTML?.trim() ?? "";
+
+    // Date is in the wrapper's aria-label: "Reply to Post by ... from 2026-01-29"
+    const dateStr =
+      wrapperEl?.getAttribute("aria-label")?.match(/from (.+)$/)?.[1] ?? "";
+
+    // Replies: [data-entry-id] elements whose immediate [data-entry-id] ancestor is this el
     const replies: DiscussionPost[] = [];
-    el.querySelectorAll<Element>("[data-entry-wrapper-id]").forEach((child) => {
-      // Only direct children (not deeply nested — they'll have their own wrappers)
-      if (child.closest("[data-entry-id]") !== el) return;
-      replies.push(extractPost(child));
-    });
+    for (const entry of allEntryEls) {
+      if (entry === el) continue;
+      const parentEntry = entry.parentElement?.closest<HTMLElement>("[data-entry-id]");
+      if (parentEntry === el) {
+        replies.push(extractPost(entry));
+      }
+    }
 
     return { id: entryId, authorName, contentHtml, createdAt: dateStr, replies };
   }
 
   const posts: DiscussionPost[] = [];
-  doc.querySelectorAll<Element>("[data-entry-id]").forEach((el) => {
-    // Only top-level entries (not nested inside another entry)
+  for (const el of allEntryEls) {
     if (!el.parentElement?.closest("[data-entry-id]")) {
       posts.push(extractPost(el));
     }
-  });
+  }
 
-  // Detect total pages
+  // Detect total pages from pagination buttons
   const pageButtons = doc.querySelectorAll(".discussion-pagination-section button[data-page], .pagination button");
   const totalPages = pageButtons.length > 0
     ? Math.max(...Array.from(pageButtons).map((b) => Number(b.textContent?.trim()) || 1))
