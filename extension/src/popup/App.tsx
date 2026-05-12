@@ -255,22 +255,27 @@ export default function App() {
                     Submissions loaded: {exportData.courses.length} courses, {exportData.totalFiles} files
                   </p>
                 )}
-                {job?.status === "done" ? (
+                {job?.status === "done" && (
                   <button
                     onClick={downloadArchive}
                     className="w-full bg-green-600 text-white text-sm font-semibold py-2 rounded hover:bg-green-700 transition-colors"
                   >
                     Download Archive (.zip)
                   </button>
-                ) : (
-                  <button onClick={startArchive} disabled={selected.size === 0 || isRunning}
-                    className="w-full bg-canvas-red text-white text-sm font-semibold py-2 rounded
-                               disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-700 transition-colors">
-                    {isRunning
-                      ? `Archiving ${job.completedCourses}/${job.totalCourses}...`
-                      : `Archive ${selected.size > 0 ? `${selected.size} ` : ""}${selected.size === 1 ? "Course" : "Courses"}`}
-                  </button>
                 )}
+                <button
+                  onClick={job?.status === "done" ? () => { setJob(null); startArchive(); } : startArchive}
+                  disabled={selected.size === 0 || isRunning}
+                  className={`w-full text-sm font-semibold py-2 rounded transition-colors
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    ${job?.status === "done"
+                      ? "border border-canvas-red text-canvas-red hover:bg-orange-50"
+                      : "bg-canvas-red text-white hover:bg-orange-700"}`}
+                >
+                  {isRunning
+                    ? `Archiving ${job.completedCourses}/${job.totalCourses}...`
+                    : `Archive ${selected.size > 0 ? `${selected.size} ` : ""}${selected.size === 1 ? "Course" : "Courses"}`}
+                </button>
               </div>
             </>
           )}
