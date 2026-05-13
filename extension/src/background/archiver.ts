@@ -1,6 +1,6 @@
 import type { ArchiveJob, CourseArchive } from "../types/archive";
 import type { CanvasCourse, ExtMessage, ScrapeResult } from "../types/canvas";
-import { loadExportMeta, loadFileBytes, saveArchiveZip } from "../lib/storage";
+import { loadExportMeta, loadFileBytes, saveArchiveZip, saveFileBytes } from "../lib/storage";
 import { generateArchiveSite } from "../lib/siteGenerator";
 
 type QueueItem = { url: string; courseId: number; purpose: string };
@@ -87,6 +87,7 @@ async function scrapeCourse(
     assignments: [],
     discussions: [],
     announcements: [],
+    files: [],
   };
 
   const base = `${baseUrl}/courses/${courseId}`;
@@ -152,7 +153,22 @@ async function scrapeCourse(
     }
   }
 
-  // 5. Announcements list → each thread
+  // 5. Files page — scrape list + download each file
+  await visit(tabId, `${base}/files`, courseName, "loading files");
+  const filesResult = await scrapeTab(tabId);
+  if (filesResult.page === "files") {
+    archive.files = filesResult.data;
+    for (let i = 0; i < archive.files.length; i++) {
+      const file = archive.files[i];
+      setStep(`${courseName}: downloading file ${i + 1}/${archive.files.length} — ${file.name}`);
+      const bytes = await fetchCourseFile(tabId, file.downloadUrl);
+      if (bytes) {
+        await saveFileBytes(`course_file/${courseId}/${file.id}`, bytes);
+      }
+    }
+  }
+
+  // 6. Announcements list → each thread
   await visit(tabId, `${base}/announcements`, courseName, "loading announcements");
   const annListResult = await scrapeTab(tabId);
   if (annListResult.page === "announcements") {
@@ -189,6 +205,18 @@ async function visit(tabId: number, url: string, courseName: string, step: strin
   });
   // Small pause for React hydration on heavy pages
   await delay(400);
+}
+
+async function fetchCourseFile(tabId: number, url: string): Promise<Uint8Array | null> {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { type: "FETCH_FILE", url } satisfies ExtMessage);
+    if (response?.type === "FILE_BYTES" && response.bytes) {
+      return new Uint8Array(response.bytes);
+    }
+  } catch {
+    // Content script unavailable or fetch failed
+  }
+  return null;
 }
 
 async function scrapeTab(tabId: number): Promise<ScrapeResult> {

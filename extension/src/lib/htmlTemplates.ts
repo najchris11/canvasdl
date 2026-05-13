@@ -1,4 +1,4 @@
-import type { ArchiveJob, AssignmentData, CourseArchive, GradeEntry, Discussion, DiscussionPost } from "../types/archive";
+import type { ArchiveJob, AssignmentData, CourseArchive, CourseFile, GradeEntry, Discussion, DiscussionPost } from "../types/archive";
 import type { ParsedExport } from "./zipParser";
 
 // ─── Shared CSS ──────────────────────────────────────────────────────────────
@@ -200,6 +200,7 @@ function courseTabs(courseId: number, active: string, relRoot: string): string {
     ["Modules", `${base}/modules.html`],
     ["Discussions", `${base}/discussions/index.html`],
     ["Announcements", `${base}/announcements/index.html`],
+    ["Files", `${base}/files.html`],
   ];
   return `<div class="tabs">${tabs.map(([label, href]) =>
     `<a href="${href}" class="tab${label === active ? " active" : ""}">${label}</a>`
@@ -571,6 +572,50 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ─── courses/{id}/files.html ──────────────────────────────────────────────────
+
+export function filesPage(archive: CourseArchive, downloadedIds: Set<string>): string {
+  const relRoot = "../../";
+
+  const rows = archive.files.map(f => {
+    const isDownloaded = downloadedIds.has(f.id);
+    const fileLink = isDownloaded
+      ? `<a href="course_files/${encodeURIComponent(f.name)}">${esc(f.name)}</a>`
+      : `<span>${esc(f.name)}</span>`;
+    return `<tr>
+      <td>${fileLink}</td>
+      <td style="color:var(--gray);font-size:.8rem;white-space:nowrap">${esc(f.sizeLabel)}</td>
+      <td style="color:var(--gray);font-size:.8rem;white-space:nowrap">${esc(f.updatedAt)}</td>
+      <td>${isDownloaded
+        ? `<span class="badge badge-graded">Saved</span>`
+        : `<span class="badge badge-unsubmitted">Not saved</span>`}</td>
+    </tr>`;
+  }).join("");
+
+  const content = `
+    <div class="page-header">
+      <h1>Files</h1>
+      <div class="meta">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}
+        &middot; ${archive.files.length} file${archive.files.length !== 1 ? "s" : ""}
+        &middot; ${downloadedIds.size} saved
+      </div>
+    </div>
+    ${courseTabs(archive.courseId, "Files", relRoot)}
+    ${archive.files.length ? `
+    <table class="grade-table">
+      <thead><tr><th>Name</th><th>Size</th><th>Updated</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : `<p style="color:var(--gray)">No files recorded.</p>`}
+  `;
+
+  return shell(`Files — ${archive.courseName}`, relRoot,
+    `<span class="nav-sep">/</span>
+     <a href="index.html" class="nav-crumb">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}</a>
+     <span class="nav-sep">/</span><span class="nav-crumb">Files</span>`,
+    content
+  );
 }
 
 // ─── courses/{id}/quizzes/{aid}.html ─────────────────────────────────────────

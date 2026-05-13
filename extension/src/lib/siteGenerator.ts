@@ -7,6 +7,7 @@ import {
   courseListPage,
   courseIndexPage,
   assignmentsPage,
+  filesPage,
   gradesPage,
   modulesPage,
   discussionListPage,
@@ -48,6 +49,17 @@ export async function generateArchiveSite(
     zip.file(`${base}/assignments.html`, assignmentsPage(archive, exportData));
     zip.file(`${base}/grades.html`, gradesPage(archive));
     zip.file(`${base}/modules.html`, modulesPage(archive));
+
+    // Course files — load downloaded bytes and add to ZIP
+    const downloadedFileIds = new Set<string>();
+    for (const file of archive.files) {
+      const bytes = await submissionFileLoader?.(`course_file/${id}/${file.id}`);
+      if (bytes) {
+        zip.file(`${base}/course_files/${file.name}`, bytes);
+        downloadedFileIds.add(file.id);
+      }
+    }
+    zip.file(`${base}/files.html`, filesPage(archive, downloadedFileIds));
 
     // Quiz pages — one per assignment with quiz data
     for (const assignment of archive.assignments) {

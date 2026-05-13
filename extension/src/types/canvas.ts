@@ -77,7 +77,9 @@ export type ExtMessage =
   | { type: "SCRAPE_RESULT"; data: ScrapeResult }
   | { type: "GET_JOB_STATE" }
   | { type: "JOB_STATE"; job: import("./archive").ArchiveJob | null }
-  | { type: "ARCHIVE_DONE"; downloadUrl: string };
+  | { type: "ARCHIVE_DONE"; downloadUrl: string }
+  | { type: "FETCH_FILE"; url: string }
+  | { type: "FILE_BYTES"; bytes: Uint8Array | null; error?: string };
 
 export type ScrapeResult =
   | { page: "grades"; data: import("./archive").GradeEntry[] }
@@ -88,6 +90,7 @@ export type ScrapeResult =
   | { page: "discussion_list"; data: { id: string; title: string; url: string }[] }
   | { page: "announcements"; data: import("./archive").Discussion[] }
   | { page: "quiz_preview"; data: import("./archive").QuizData }
+  | { page: "files"; data: import("./archive").CourseFile[] }
   | { page: "unknown"; data: null };
 
 export interface TabState {

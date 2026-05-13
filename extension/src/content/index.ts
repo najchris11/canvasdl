@@ -6,6 +6,7 @@ import {
   scrapeAnnouncementList,
   scrapeDiscussion,
   scrapeDiscussionList,
+  scrapeFileList,
   scrapeGrades,
   scrapeModules,
   scrapeQuizPreview,
@@ -83,6 +84,8 @@ function handleScrapePage(): ScrapeResult {
       return { page: "discussion", data: scrapeDiscussion(document, url) };
     case "quiz_preview":
       return { page: "quiz_preview", data: scrapeQuizPreview(document) };
+    case "files":
+      return { page: "files", data: scrapeFileList(document) };
     case "announcements":
       return { page: "announcements", data: scrapeAnnouncementList(document).map((d) => ({
         ...d, posts: [], totalPages: 0
@@ -114,7 +117,6 @@ function init() {
 
   chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) => {
     if (msg.type === "SCRAPE_PAGE") {
-      // ENV may still be loading — wait a tick for the event to fire
       const respond = () => {
         const result = handleScrapePage();
         sendResponse({ type: "SCRAPE_RESULT", data: result } satisfies ExtMessage);
@@ -122,14 +124,42 @@ function init() {
       if (capturedEnv) {
         respond();
       } else {
-        // Give the injected script up to 2s to fire the env event
         const timeout = setTimeout(respond, 2000);
         window.addEventListener("canvasdl:env", () => {
           clearTimeout(timeout);
           respond();
         }, { once: true });
       }
-      return true; // keep channel open for async response
+      return true;
+    }
+
+    if (msg.type === "FETCH_FILE") {
+      const MAX_BYTES = 50 * 1024 * 1024; // 50 MB limit
+      (async () => {
+        try {
+          // HEAD first to check size
+          const head = await fetch(msg.url, { method: "HEAD" });
+          const len = Number(head.headers.get("Content-Length") ?? 0);
+          if (len > MAX_BYTES) {
+            sendResponse({ type: "FILE_BYTES", bytes: null, error: "too_large" } satisfies ExtMessage);
+            return;
+          }
+          const resp = await fetch(msg.url);
+          if (!resp.ok) {
+            sendResponse({ type: "FILE_BYTES", bytes: null, error: resp.statusText } satisfies ExtMessage);
+            return;
+          }
+          const buf = await resp.arrayBuffer();
+          if (buf.byteLength > MAX_BYTES) {
+            sendResponse({ type: "FILE_BYTES", bytes: null, error: "too_large" } satisfies ExtMessage);
+            return;
+          }
+          sendResponse({ type: "FILE_BYTES", bytes: new Uint8Array(buf) } satisfies ExtMessage);
+        } catch (e) {
+          sendResponse({ type: "FILE_BYTES", bytes: null, error: String(e) } satisfies ExtMessage);
+        }
+      })();
+      return true;
     }
   });
 }

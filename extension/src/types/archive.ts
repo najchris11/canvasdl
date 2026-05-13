@@ -87,6 +87,16 @@ export interface Discussion {
   totalPages: number;
 }
 
+export interface CourseFile {
+  id: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  sizeLabel: string;
+  updatedAt: string;
+  downloadUrl: string;
+}
+
 export interface CourseArchive {
   courseId: number;
   courseName: string;
@@ -96,6 +106,7 @@ export interface CourseArchive {
   assignments: AssignmentData[];
   discussions: Discussion[];
   announcements: Discussion[];
+  files: CourseFile[];
 }
 
 export interface ArchiveJob {

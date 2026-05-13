@@ -1,6 +1,7 @@
 import type { CanvasEnv } from "../types/canvas";
 import type {
   AssignmentData,
+  CourseFile,
   Discussion,
   DiscussionPost,
   GradeEntry,
@@ -358,6 +359,75 @@ export function scrapeAnnouncementList(doc: Document): { id: string; title: stri
 // ---------------------------------------------------------------------------
 // Detect which page type we're on from the URL
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Files page  (/courses/{id}/files)
+// ---------------------------------------------------------------------------
+export function scrapeFileList(doc: Document): CourseFile[] {
+  const files: CourseFile[] = [];
+  const courseIdMatch = location.href.match(/\/courses\/(\d+)/);
+  const courseId = courseIdMatch?.[1] ?? "";
+  const origin = location.origin;
+
+  doc.querySelectorAll<HTMLElement>("[data-testid='table-row']").forEach((row) => {
+    const nameCell = row.querySelector<HTMLElement>("[data-testid='table-cell-name']");
+    if (!nameCell) return;
+
+    const anchor = nameCell.querySelector<HTMLAnchorElement>("a[href]");
+    if (!anchor) return;
+
+    const idMatch = anchor.href.match(/[?&]preview=(\d+)/);
+    if (!idMatch) return;
+    const fileId = idMatch[1];
+
+    // The anchor's data-testid is set to the filename by Canvas
+    const name = anchor.getAttribute("data-testid") ?? anchor.textContent?.trim() ?? "";
+
+    // Icon name tells us content type (IconPdf → pdf, IconDocument → docx, etc.)
+    const iconName = nameCell.querySelector<SVGElement>("svg[name]")?.getAttribute("name") ?? "";
+    const contentType = iconNameToMime(iconName);
+
+    // Size: formatted label in the size cell
+    const sizeLabel = row.querySelector<HTMLElement>("[data-testid='table-cell-size']")
+      ?.textContent?.trim() ?? "";
+    const sizeBytes = parseSizeLabel(sizeLabel);
+
+    // Date from updated_at cell
+    const updatedAt = row.querySelector<HTMLElement>(
+      "[data-testid='table-cell-updated_at'] [data-testid='friendly-date-time']"
+    )?.textContent?.trim() ?? "";
+
+    const downloadUrl = courseId
+      ? `${origin}/courses/${courseId}/files/${fileId}/download?download_frd=1`
+      : `${origin}/files/${fileId}/download?download_frd=1`;
+
+    files.push({ id: fileId, name, contentType, sizeBytes, sizeLabel, updatedAt, downloadUrl });
+  });
+
+  return files;
+}
+
+function iconNameToMime(iconName: string): string {
+  const n = iconName.replace("Icon", "").toLowerCase();
+  if (n === "pdf") return "application/pdf";
+  if (n === "document" || n === "msword") return "application/msword";
+  if (n === "video") return "video/mp4";
+  if (n === "audio") return "audio/mpeg";
+  if (n === "image") return "image/png";
+  if (n === "zip") return "application/zip";
+  return "application/octet-stream";
+}
+
+function parseSizeLabel(label: string): number {
+  const m = label.match(/([\d.]+)\s*(B|KB|MB|GB)/i);
+  if (!m) return 0;
+  const val = parseFloat(m[1]);
+  const unit = m[2].toUpperCase();
+  if (unit === "GB") return Math.round(val * 1024 * 1024 * 1024);
+  if (unit === "MB") return Math.round(val * 1024 * 1024);
+  if (unit === "KB") return Math.round(val * 1024);
+  return Math.round(val);
+}
+
 export type PageType =
   | "grades"
   | "modules"
@@ -367,6 +437,7 @@ export type PageType =
   | "discussion_list"
   | "discussion"
   | "announcements"
+  | "files"
   | "unknown";
 
 export function detectPageType(url: string): PageType {
@@ -380,5 +451,6 @@ export function detectPageType(url: string): PageType {
   if (/\/discussion_topics\/\d+/.test(path)) return "discussion";
   if (/\/discussion_topics\s*$/.test(path)) return "discussion_list";
   if (/\/announcements/.test(path)) return "announcements";
+  if (/\/files/.test(path) && !u.searchParams.has("preview")) return "files";
   return "unknown";
 }
