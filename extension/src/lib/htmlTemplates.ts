@@ -183,6 +183,17 @@ function shell(
 <main class="container">
 ${content}
 </main>
+<script>
+document.querySelectorAll('img').forEach(function(img){
+  img.addEventListener('error',function(){
+    if(this.dataset.errHandled)return;
+    this.dataset.errHandled='1';
+    this.alt=this.alt||'Image unavailable';
+    this.style.cssText='display:inline-block;padding:.25rem .5rem;background:#2a3a46;color:#8fa8b8;font-size:.75rem;border:1px dashed #4a5f6e;border-radius:4px;min-width:60px;text-align:center';
+    this.removeAttribute('src');
+  },true);
+});
+</script>
 </body>
 </html>`;
 }
