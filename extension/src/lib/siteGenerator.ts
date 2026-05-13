@@ -10,6 +10,8 @@ import {
   filesPage,
   gradesPage,
   modulesPage,
+  pageListPage,
+  pageDetailPage,
   discussionListPage,
   discussionPage,
   quizPage,
@@ -66,6 +68,11 @@ export async function generateArchiveSite(
       if (assignment.quizData) {
         zip.file(`${base}/quizzes/${assignment.id}.html`, quizPage(assignment, archive));
       }
+    }
+
+    zip.file(`${base}/pages/index.html`, pageListPage(archive));
+    for (const page of archive.pages) {
+      zip.file(`${base}/pages/${page.slug}.html`, pageDetailPage(page, archive));
     }
 
     zip.file(`${base}/discussions/index.html`, discussionListPage(archive, "discussions"));

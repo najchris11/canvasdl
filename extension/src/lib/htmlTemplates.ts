@@ -1,4 +1,4 @@
-import type { ArchiveJob, AssignmentData, CourseArchive, CourseFile, GradeEntry, Discussion, DiscussionPost } from "../types/archive";
+import type { ArchiveJob, AssignmentData, CourseArchive, CourseFile, CoursePage, GradeEntry, Discussion, DiscussionPost } from "../types/archive";
 import type { ParsedExport } from "./zipParser";
 
 // ─── Shared CSS ──────────────────────────────────────────────────────────────
@@ -198,6 +198,7 @@ function courseTabs(courseId: number, active: string, relRoot: string): string {
     ["Assignments", `${base}/assignments.html`],
     ["Grades", `${base}/grades.html`],
     ["Modules", `${base}/modules.html`],
+    ["Pages", `${base}/pages/index.html`],
     ["Discussions", `${base}/discussions/index.html`],
     ["Announcements", `${base}/announcements/index.html`],
     ["Files", `${base}/files.html`],
@@ -572,6 +573,58 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// ─── courses/{id}/pages/index.html + pages/{slug}.html ───────────────────────
+
+export function pageListPage(archive: CourseArchive): string {
+  const relRoot = "../../../";
+
+  const content = `
+    <div class="page-header">
+      <h1>Pages</h1>
+      <div class="meta">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}</div>
+    </div>
+    ${courseTabs(archive.courseId, "Pages", relRoot)}
+    ${archive.pages.length ? `<div class="disc-list">
+      ${archive.pages.map(p => `<a href="${esc(p.slug)}.html">
+        <strong>${esc(p.title)}</strong>
+        ${p.updatedAt ? `<span class="disc-meta">Updated ${esc(new Date(p.updatedAt).toLocaleDateString())}</span>` : ""}
+      </a>`).join("")}
+    </div>` : `<p style="color:var(--gray)">No pages recorded.</p>`}
+  `;
+
+  return shell(`Pages — ${archive.courseName}`, relRoot,
+    `<span class="nav-sep">/</span>
+     <a href="../index.html" class="nav-crumb">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}</a>
+     <span class="nav-sep">/</span><span class="nav-crumb">Pages</span>`,
+    content
+  );
+}
+
+export function pageDetailPage(page: CoursePage, archive: CourseArchive): string {
+  const relRoot = "../../../";
+
+  const content = `
+    <div class="page-header">
+      <h1>${esc(page.title)}</h1>
+      <div class="meta">
+        ${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}
+        ${page.updatedAt ? ` &middot; Updated ${esc(new Date(page.updatedAt).toLocaleDateString())}` : ""}
+      </div>
+    </div>
+    <p style="margin-bottom:1rem"><a href="index.html">← Back to Pages</a></p>
+    <div class="desc-content">${page.bodyHtml || "<p style='color:var(--gray)'>No content.</p>"}</div>
+  `;
+
+  return shell(`${page.title} — ${archive.courseName}`, relRoot,
+    `<span class="nav-sep">/</span>
+     <a href="../index.html" class="nav-crumb">${esc(archive.courseName.replace(/^\[ARCHIVED\]\s*/, ""))}</a>
+     <span class="nav-sep">/</span>
+     <a href="index.html" class="nav-crumb">Pages</a>
+     <span class="nav-sep">/</span><span class="nav-crumb">${esc(page.title)}</span>`,
+    content
+  );
 }
 
 // ─── courses/{id}/files.html ──────────────────────────────────────────────────

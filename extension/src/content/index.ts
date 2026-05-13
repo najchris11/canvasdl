@@ -9,6 +9,8 @@ import {
   scrapeFileList,
   scrapeGrades,
   scrapeModules,
+  scrapePage,
+  scrapePageList,
   scrapeQuizPreview,
 } from "../lib/scrapers";
 
@@ -86,6 +88,10 @@ function handleScrapePage(): ScrapeResult {
       return { page: "quiz_preview", data: scrapeQuizPreview(document) };
     case "files":
       return { page: "files", data: scrapeFileList(document) };
+    case "page_list":
+      return { page: "page_list", data: scrapePageList(document) };
+    case "page":
+      return { page: "page", data: scrapePage(document, env, url) };
     case "announcements":
       return { page: "announcements", data: scrapeAnnouncementList(document).map((d) => ({
         ...d, posts: [], totalPages: 0

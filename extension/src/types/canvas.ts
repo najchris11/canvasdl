@@ -36,6 +36,14 @@ export interface CanvasEnv {
   // Gradebook page
   submissions?: GradebookSubmission[];
   assignment_groups?: AssignmentGroup[];
+  // Wiki/Pages page
+  wiki_page?: {
+    title: string;
+    body: string;
+    url: string;
+    updated_at?: string;
+    created_at?: string;
+  };
 }
 
 export interface GradebookSubmission {
@@ -91,6 +99,8 @@ export type ScrapeResult =
   | { page: "announcements"; data: import("./archive").Discussion[] }
   | { page: "quiz_preview"; data: import("./archive").QuizData }
   | { page: "files"; data: import("./archive").CourseFile[] }
+  | { page: "page_list"; data: { slug: string; title: string; url: string }[] }
+  | { page: "page"; data: import("./archive").CoursePage }
   | { page: "unknown"; data: null };
 
 export interface TabState {

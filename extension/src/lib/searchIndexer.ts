@@ -3,7 +3,7 @@ import type { ArchiveJob } from "../types/archive";
 
 export interface SearchDocument {
   id: string;
-  type: "assignment" | "discussion" | "announcement" | "module";
+  type: "assignment" | "discussion" | "announcement" | "module" | "page";
   courseId: number;
   courseName: string;
   title: string;
@@ -76,6 +76,20 @@ export function buildSearchIndex(job: ArchiveJob): SearchIndex {
         title: ann.title,
         body: ann.posts.map(p => stripHtml(p.contentHtml)).join(" ").slice(0, 2000),
         url: `courses/${cid}/announcements/${ann.id}.html`,
+      };
+    }
+
+    // Pages
+    for (const page of archive.pages ?? []) {
+      const id = `p-${cid}-${page.slug}`;
+      documents[id] = {
+        id,
+        type: "page",
+        courseId: cid,
+        courseName,
+        title: page.title,
+        body: stripHtml(page.bodyHtml).slice(0, 5000),
+        url: `courses/${cid}/pages/${page.slug}.html`,
       };
     }
 

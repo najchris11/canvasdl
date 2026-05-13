@@ -87,6 +87,13 @@ export interface Discussion {
   totalPages: number;
 }
 
+export interface CoursePage {
+  slug: string;
+  title: string;
+  bodyHtml: string;
+  updatedAt: string;
+}
+
 export interface CourseFile {
   id: string;
   name: string;
@@ -107,6 +114,7 @@ export interface CourseArchive {
   discussions: Discussion[];
   announcements: Discussion[];
   files: CourseFile[];
+  pages: CoursePage[];
 }
 
 export interface ArchiveJob {

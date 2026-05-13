@@ -88,6 +88,7 @@ async function scrapeCourse(
     discussions: [],
     announcements: [],
     files: [],
+    pages: [],
   };
 
   const base = `${baseUrl}/courses/${courseId}`;
@@ -168,7 +169,21 @@ async function scrapeCourse(
     }
   }
 
-  // 6. Announcements list → each thread
+  // 6. Pages list → each page
+  await visit(tabId, `${base}/pages`, courseName, "loading pages");
+  const pageListResult = await scrapeTab(tabId);
+  if (pageListResult.page === "page_list") {
+    const stubs = pageListResult.data;
+    for (let i = 0; i < stubs.length; i++) {
+      const stub = stubs[i];
+      setStep(`${courseName}: page ${i + 1}/${stubs.length}`);
+      await visit(tabId, stub.url, courseName, `page ${i + 1}/${stubs.length}`);
+      const result = await scrapeTab(tabId);
+      if (result.page === "page") archive.pages.push(result.data);
+    }
+  }
+
+  // 7. Announcements list → each thread
   await visit(tabId, `${base}/announcements`, courseName, "loading announcements");
   const annListResult = await scrapeTab(tabId);
   if (annListResult.page === "announcements") {

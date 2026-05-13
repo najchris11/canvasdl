@@ -2,6 +2,7 @@ import type { CanvasEnv } from "../types/canvas";
 import type {
   AssignmentData,
   CourseFile,
+  CoursePage,
   Discussion,
   DiscussionPost,
   GradeEntry,
@@ -428,6 +429,62 @@ function parseSizeLabel(label: string): number {
   return Math.round(val);
 }
 
+// ---------------------------------------------------------------------------
+// Pages list  (/courses/{id}/pages)
+// ---------------------------------------------------------------------------
+export function scrapePageList(doc: Document): { slug: string; title: string; url: string }[] {
+  const results: { slug: string; title: string; url: string }[] = [];
+  const seen = new Set<string>();
+
+  // Canvas renders pages as a table with links — try multiple selectors
+  const selectors = [
+    "a[href*='/pages/']",
+    "a[href*='/wiki/']",
+    "[data-testid='wiki-page-name'] a",
+    ".wiki_pages_list a",
+  ];
+
+  for (const sel of selectors) {
+    doc.querySelectorAll<HTMLAnchorElement>(sel).forEach((a) => {
+      const match = a.href.match(/\/(?:pages|wiki)\/([^/?#]+)/);
+      if (!match || seen.has(match[1])) return;
+      // Exclude the pages index link itself
+      if (/\/(?:pages|wiki)\/?$/.test(a.href)) return;
+      seen.add(match[1]);
+      const title = a.querySelector("[data-testid='wiki-page-name']")?.textContent?.trim()
+        ?? a.textContent?.trim()
+        ?? match[1];
+      results.push({ slug: match[1], title, url: a.href });
+    });
+    if (results.length) break;
+  }
+
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Individual page  (/courses/{id}/pages/{slug})
+// ENV.wiki_page has the canonical data; DOM is a fallback.
+// ---------------------------------------------------------------------------
+export function scrapePage(doc: Document, env: CanvasEnv, url: string): CoursePage {
+  const slugMatch = url.match(/\/(?:pages|wiki)\/([^/?#]+)/);
+  const slug = slugMatch?.[1] ?? "";
+
+  const wp = env.wiki_page;
+
+  const title = wp?.title
+    ?? doc.querySelector<HTMLElement>("h1.page-title, .wiki-page-title, h1")?.textContent?.trim()
+    ?? doc.title.split(":")[0].trim();
+
+  const bodyHtml = wp?.body
+    ?? doc.querySelector<HTMLElement>(".user_content.enhanced, #wiki_page_body, .show-wiki-page .user_content")?.innerHTML?.trim()
+    ?? "";
+
+  const updatedAt = wp?.updated_at ?? "";
+
+  return { slug, title, bodyHtml, updatedAt };
+}
+
 export type PageType =
   | "grades"
   | "modules"
@@ -438,6 +495,8 @@ export type PageType =
   | "discussion"
   | "announcements"
   | "files"
+  | "page_list"
+  | "page"
   | "unknown";
 
 export function detectPageType(url: string): PageType {
@@ -452,5 +511,7 @@ export function detectPageType(url: string): PageType {
   if (/\/discussion_topics\s*$/.test(path)) return "discussion_list";
   if (/\/announcements/.test(path)) return "announcements";
   if (/\/files/.test(path) && !u.searchParams.has("preview")) return "files";
+  if (/\/(?:pages|wiki)\/[^/]+/.test(path)) return "page";
+  if (/\/(?:pages|wiki)\/?$/.test(path)) return "page_list";
   return "unknown";
 }
