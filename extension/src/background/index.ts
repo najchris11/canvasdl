@@ -17,6 +17,19 @@ function updateBadge(tabId: number, courses: CanvasCourse[]) {
   chrome.action.setBadgeBackgroundColor({ color: "#E66000", tabId });
 }
 
+function persistTabState(tabId: number, state: TabState) {
+  chrome.storage.session?.set({ [`tabState_${tabId}`]: state }).catch(() => {});
+}
+
+async function loadPersistedTabState(tabId: number): Promise<TabState | null> {
+  try {
+    const result = await chrome.storage.session?.get(`tabState_${tabId}`);
+    return (result?.[`tabState_${tabId}`] as TabState) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 chrome.runtime.onMessage.addListener(
   (msg: ExtMessage, sender, sendResponse) => {
     const tabId = sender.tab?.id;
@@ -29,12 +42,9 @@ chrome.runtime.onMessage.addListener(
       }));
       const prev = tabStates.get(tabId);
       const merged = mergeCourses(prev?.courses ?? [], activeCourses);
-      tabStates.set(tabId, {
-        url: msg.url,
-        env: msg.env,
-        courses: merged,
-        capturedAt: Date.now(),
-      });
+      const state: TabState = { url: msg.url, env: msg.env, courses: merged, capturedAt: Date.now() };
+      tabStates.set(tabId, state);
+      persistTabState(tabId, state);
       updateBadge(tabId, merged);
     }
 
@@ -42,17 +52,28 @@ chrome.runtime.onMessage.addListener(
       if (tabId == null) return;
       const prev = tabStates.get(tabId);
       const merged = mergeCourses(prev?.courses ?? [], msg.courses);
-      tabStates.set(tabId, {
+      const state: TabState = {
         url: prev?.url ?? "",
         env: prev?.env ?? { current_user_id: "" },
         courses: merged,
         capturedAt: Date.now(),
-      });
+      };
+      tabStates.set(tabId, state);
+      persistTabState(tabId, state);
       updateBadge(tabId, merged);
     }
 
     if (msg.type === "GET_TAB_STATE") {
-      sendResponse({ type: "TAB_STATE", state: tabStates.get(msg.tabId) ?? null } satisfies ExtMessage);
+      const inMemory = tabStates.get(msg.tabId);
+      if (inMemory) {
+        sendResponse({ type: "TAB_STATE", state: inMemory } satisfies ExtMessage);
+      } else {
+        loadPersistedTabState(msg.tabId).then((state) => {
+          if (state) tabStates.set(msg.tabId, state);
+          sendResponse({ type: "TAB_STATE", state: state ?? null } satisfies ExtMessage);
+        });
+        return true;
+      }
       return true;
     }
 
@@ -82,4 +103,5 @@ chrome.runtime.onMessage.addListener(
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabStates.delete(tabId);
+  chrome.storage.session?.remove(`tabState_${tabId}`).catch(() => {});
 });

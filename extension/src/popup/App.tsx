@@ -29,9 +29,10 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => {
+  const checkTabState = useCallback((retrying = false) => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) { setCanvasStatus("not-canvas"); return; }
+      const isCanvasUrl = /instructure\.com/.test(tab.url ?? "");
       chrome.runtime.sendMessage(
         { type: "GET_TAB_STATE", tabId: tab.id } satisfies ExtMessage,
         (res: ExtMessage) => {
@@ -39,12 +40,19 @@ export default function App() {
             setTabState(res.state);
             setSelected(new Set(res.state.courses.map((c) => c.id)));
             setCanvasStatus("ready");
+          } else if (!retrying && isCanvasUrl) {
+            // Content script may still be initializing — retry once after 1.5s
+            setTimeout(() => checkTabState(true), 1500);
           } else {
             setCanvasStatus("not-canvas");
           }
         }
       );
     });
+  }, []);
+
+  useEffect(() => {
+    checkTabState();
 
     loadExportMeta().then((d) => { if (d) setExportData(d); });
     pollJobState();
