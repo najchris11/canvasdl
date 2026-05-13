@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import lunrMinJs from "lunr/lunr.min.js?raw";
 import type { ArchiveJob } from "../types/archive";
 import type { ParsedExport } from "./zipParser";
+import { hashUrl, extFromUrl, rewriteCanvasImages } from "./imageRewriter";
 import {
   CSS,
   courseListPage,
@@ -43,12 +44,32 @@ export async function generateArchiveSite(
     )
   );
 
+  // Build global image map (url → hash) from all courses' cached images
+  const urlToHash = new Map<string, string>();
+  if (submissionFileLoader) {
+    for (const archive of job.courses) {
+      for (const url of archive.cachedImageUrls ?? []) {
+        const hash = hashUrl(url);
+        const ext = extFromUrl(url);
+        const bytes = await submissionFileLoader(`canvas_img/${hash}`);
+        if (bytes) {
+          zip.file(`assets/images/${hash}.${ext}`, bytes);
+          urlToHash.set(url, hash);
+        }
+      }
+    }
+  }
+
+  // Helper: rewrite Canvas image URLs in HTML for a given ZIP-file depth
+  const rw = (html: string, relRoot: string) =>
+    urlToHash.size ? rewriteCanvasImages(html, urlToHash, relRoot) : html;
+
   for (const archive of job.courses) {
     const id = archive.courseId;
     const base = `courses/${id}`;
 
     zip.file(`${base}/index.html`, courseIndexPage(archive, exportData));
-    zip.file(`${base}/assignments.html`, assignmentsPage(archive, exportData));
+    zip.file(`${base}/assignments.html`, rw(assignmentsPage(archive, exportData), "../../"));
     zip.file(`${base}/grades.html`, gradesPage(archive));
     zip.file(`${base}/modules.html`, modulesPage(archive));
 
@@ -72,17 +93,17 @@ export async function generateArchiveSite(
 
     zip.file(`${base}/pages/index.html`, pageListPage(archive));
     for (const page of archive.pages) {
-      zip.file(`${base}/pages/${page.slug}.html`, pageDetailPage(page, archive));
+      zip.file(`${base}/pages/${page.slug}.html`, rw(pageDetailPage(page, archive), "../../../"));
     }
 
     zip.file(`${base}/discussions/index.html`, discussionListPage(archive, "discussions"));
     for (const disc of archive.discussions) {
-      zip.file(`${base}/discussions/${disc.id}.html`, discussionPage(disc, archive, "discussions"));
+      zip.file(`${base}/discussions/${disc.id}.html`, rw(discussionPage(disc, archive, "discussions"), "../../../"));
     }
 
     zip.file(`${base}/announcements/index.html`, discussionListPage(archive, "announcements"));
     for (const ann of archive.announcements) {
-      zip.file(`${base}/announcements/${ann.id}.html`, discussionPage(ann, archive, "announcements"));
+      zip.file(`${base}/announcements/${ann.id}.html`, rw(discussionPage(ann, archive, "announcements"), "../../../"));
     }
 
     // Submission files from ZIP
