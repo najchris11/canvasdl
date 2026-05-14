@@ -1,6 +1,7 @@
 import type { ArchiveJob, CourseArchive } from "../types/archive";
 import type { CanvasCourse, ExtMessage, ScrapeResult } from "../types/canvas";
 import { loadExportMeta, loadFileBytes, saveArchiveZip, saveFileBytes } from "../lib/storage";
+import { extractCanvasImageUrls, hashUrl } from "../lib/imageRewriter";
 import { generateArchiveSite } from "../lib/siteGenerator";
 
 type QueueItem = { url: string; courseId: number; purpose: string };
@@ -89,6 +90,7 @@ async function scrapeCourse(
     announcements: [],
     files: [],
     pages: [],
+    cachedImageUrls: [],
   };
 
   const base = `${baseUrl}/courses/${courseId}`;
@@ -196,7 +198,48 @@ async function scrapeCourse(
     }
   }
 
+  // Fetch inline Canvas images from all scraped HTML before the tab closes
+  setStep(`${courseName}: downloading inline images`);
+  const imageUrls = collectArchiveImageUrls(archive, baseUrl);
+  let imgIdx = 0;
+  for (const url of imageUrls) {
+    imgIdx++;
+    setStep(`${courseName}: image ${imgIdx}/${imageUrls.size}`);
+    const bytes = await fetchCourseFile(tabId, url);
+    if (bytes) {
+      await saveFileBytes(`canvas_img/${hashUrl(url)}`, bytes);
+      archive.cachedImageUrls.push(url);
+    }
+  }
+
   return archive;
+}
+
+function collectArchiveImageUrls(archive: CourseArchive, baseUrl: string): Set<string> {
+  const urls = new Set<string>();
+  const origin = new URL(baseUrl).origin;
+
+  function addFromHtml(html: string) {
+    for (const url of extractCanvasImageUrls(html, origin)) {
+      urls.add(url);
+    }
+  }
+
+  for (const a of archive.assignments) {
+    addFromHtml(a.descriptionHtml);
+    if (a.submissionBody) addFromHtml(a.submissionBody);
+  }
+  for (const d of [...archive.discussions, ...archive.announcements]) {
+    for (const post of d.posts) {
+      addFromHtml(post.contentHtml);
+      for (const reply of post.replies) addFromHtml(reply.contentHtml);
+    }
+  }
+  for (const p of archive.pages) {
+    addFromHtml(p.bodyHtml);
+  }
+
+  return urls;
 }
 
 function setStep(step: string) {
@@ -218,8 +261,9 @@ async function visit(tabId: number, url: string, courseName: string, step: strin
     chrome.tabs.onUpdated.addListener(listener);
     chrome.tabs.update(tabId, { url });
   });
-  // Small pause for React hydration on heavy pages
-  await delay(400);
+  // Discussions and announcements are React-heavy; give them more hydration time
+  const isDiscussion = /\/discussion_topics/.test(url);
+  await delay(isDiscussion ? 1200 : 400);
 }
 
 async function fetchCourseFile(tabId: number, url: string): Promise<Uint8Array | null> {

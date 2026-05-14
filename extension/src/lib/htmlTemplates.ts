@@ -85,7 +85,8 @@ h3{font-size:1rem;font-weight:600}
 .desc-content code{padding:.125rem .3rem}
 
 /* Submission body */
-.submission-body{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1rem;margin-top:.75rem;font-size:.9rem;line-height:1.7;white-space:pre-wrap}
+.submission-body{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:1rem;margin-top:.75rem;font-size:.9rem;line-height:1.7}
+.submission-body p:first-child{margin-top:0}.submission-body p:last-child{margin-bottom:0}
 
 /* File list */
 .file-list{list-style:none;margin-top:.5rem}
@@ -376,7 +377,7 @@ export function assignmentsPage(archive: CourseArchive, exportData: ParsedExport
             ` : ""}
             ${detail?.submissionBody ? `
               <h4 style="font-size:.8rem;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin:.75rem 0 .5rem">Your Submission</h4>
-              <div class="submission-body">${esc(detail.submissionBody)}</div>
+              <div class="submission-body desc-content">${detail.submissionBody}</div>
             ` : ""}
             ${zipAssignment?.files.length ? `
               <h4 style="font-size:.8rem;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin:.75rem 0 .5rem">Submitted Files</h4>

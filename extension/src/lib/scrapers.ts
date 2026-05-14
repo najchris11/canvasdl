@@ -165,6 +165,15 @@ export function scrapeAssignment(doc: Document, env: CanvasEnv, url: string): As
     ? `${new URL(url).origin}/courses/${new URL(url).pathname.match(/\/courses\/(\d+)/)?.[1]}/assignments/${id}/submissions/${userId}?preview=1`
     : null;
 
+  // ENV body for online_text_entry; fall back to DOM for Canvas's newer assignment view
+  const envBody = sub?.submission?.body ?? null;
+  const domBody =
+    doc.querySelector<HTMLElement>(".submission_body .user_content")?.innerHTML?.trim() ??
+    doc.querySelector<HTMLElement>("[data-testid='submission-body-content']")?.innerHTML?.trim() ??
+    doc.querySelector<HTMLElement>(".submission_details .submission_content")?.innerHTML?.trim() ??
+    null;
+  const submissionBody = envBody || domBody;
+
   return {
     id,
     name,
@@ -174,7 +183,7 @@ export function scrapeAssignment(doc: Document, env: CanvasEnv, url: string): As
     pointsPossible: sub?.points_possible ?? null,
     submittedAt: sub?.submission?.submitted_at ?? null,
     submissionType: sub?.submission?.submission_type ?? null,
-    submissionBody: sub?.submission?.body ?? null,
+    submissionBody,
     quizPreviewUrl,
     quizData: null,
   };
@@ -289,22 +298,31 @@ export function scrapeDiscussion(doc: Document, url: string): Discussion {
     const entryId = el.getAttribute("data-entry-id") ?? "";
 
     // The wrapper span holds all post metadata and content
-    const wrapperEl = el.querySelector<HTMLElement>(`[data-entry-wrapper-id="${entryId}"]`);
+    const wrapperEl = el.querySelector<HTMLElement>(`[data-entry-wrapper-id="${entryId}"]`) ?? el;
 
-    // Author name
+    // Author name — try several testids/classes Canvas has used across redesigns
     const authorName =
       el.querySelector<HTMLElement>("[data-testid='author_name']")?.textContent?.trim() ??
+      el.querySelector<HTMLElement>("[data-testid='discussion-post-author-name']")?.textContent?.trim() ??
+      el.querySelector<HTMLElement>(".author_name, .author, [class*='authorName']")?.textContent?.trim() ??
       "Unknown";
 
-    // Post body HTML — Canvas stores it in a .user_content span with data-resource-type
-    const contentEl = wrapperEl?.querySelector<HTMLElement>(
-      ".userMessage .user_content, .user_content[data-resource-type]"
-    );
+    // Post body HTML — try several selectors across Canvas versions
+    const contentEl =
+      wrapperEl.querySelector<HTMLElement>(".userMessage .user_content") ??
+      wrapperEl.querySelector<HTMLElement>(".user_content[data-resource-type]") ??
+      wrapperEl.querySelector<HTMLElement>("[data-testid='message-body']") ??
+      wrapperEl.querySelector<HTMLElement>("[data-testid='discussion-post-message']") ??
+      wrapperEl.querySelector<HTMLElement>(".message, .discussion-entry-message") ??
+      wrapperEl.querySelector<HTMLElement>("[class*='message'], [class*='Message']");
     const contentHtml = contentEl?.innerHTML?.trim() ?? "";
 
-    // Date is in the wrapper's aria-label: "Reply to Post by ... from 2026-01-29"
+    // Date — wrapper aria-label "Reply to Post by ... from <date>", or datetime attr
     const dateStr =
-      wrapperEl?.getAttribute("aria-label")?.match(/from (.+)$/)?.[1] ?? "";
+      wrapperEl.getAttribute("aria-label")?.match(/from (.+)$/)?.[1] ??
+      el.querySelector<HTMLElement>("time[datetime]")?.getAttribute("datetime") ??
+      el.querySelector<HTMLElement>("[data-testid='created-at-date']")?.textContent?.trim() ??
+      "";
 
     // Replies: [data-entry-id] elements whose immediate [data-entry-id] ancestor is this el
     const replies: DiscussionPost[] = [];
